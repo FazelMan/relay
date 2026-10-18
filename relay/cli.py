@@ -102,45 +102,92 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stable_handoff_text(text: str) -> str:
+    """Ignore the generated timestamp when checking whether a handoff changed."""
+    import re
+    return re.sub(r"(?m)^> \\*\\*Updated:\\*\\*.*$", "> **Updated:** <timestamp>", text).strip()
+
+
 def cmd_handoff(args: argparse.Namespace) -> int:
+    workspace = resolve_workspace(args.workspace)
+    config = load_config(workspace)
+    if getattr(args, "handoff_command", None) == "list":
+        root_tasks = list_tasks(workspace, config)
+        entries = []
+        for tid in root_tasks:
+            hp = handoff_path(workspace, config, tid)
+            if hp.is_file() and not hp.is_symlink():
+                cp, _, _ = latest_valid_checkpoint(workspace, config, tid)
+                entries.append({
+                    "task_id": tid, "name": tid, "path": str(hp),
+                    "updated_at": (cp or {}).get("updated_at"),
+                })
+        legacy = [
+            {"name": p.name, "path": str(p), "legacy": True}
+            for p in list_legacy_handoffs(workspace, config)
+            if p.is_file() and not p.is_symlink()
+        ]
+        _print_json({"ok": True, "handoffs": entries, "legacy_handoffs": legacy, "count": len(entries) + len(legacy)})
+        return 0
+    if getattr(args, "handoff_command", None) == "delete":
+        task_id = sanitize_task_id(args.task_id)
+        hp = handoff_path(workspace, config, task_id)
+        if not getattr(args, "yes", False):
+            _print_json({"ok": False, "error": "confirmation required; pass --yes to delete only HANDOFF.md"})
+            return 2
+        if hp.is_symlink():
+            _print_json({"ok": False, "error": "refusing to delete a symlink"})
+            return 2
+        if not hp.is_file():
+            _print_json({"ok": False, "error": "handoff document not found", "task_id": task_id, "path": str(hp)})
+            return 1
+        hp.unlink()
+        _print_json({
+            "ok": True, "deleted": str(hp), "task_id": task_id,
+            "preserved": [str(checkpoint_path(workspace, config, task_id)), str(hp.parent / "history"), "all project files"],
+            "message": "Only HANDOFF.md was deleted; checkpoint, checkpoint history, task directory, and project work were preserved.",
+        })
+        return 0
+
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
     task_id = sanitize_task_id(args.task)
     data, path, err = latest_valid_checkpoint(workspace, config, task_id)
+    previous_handoff = handoff_path(workspace, config, task_id)
+    previous_text = None
+    if previous_handoff.is_file() and not previous_handoff.is_symlink():
+        previous_text = previous_handoff.read_text(encoding="utf-8")
     git_state = collect_git_state(workspace)
     if data is None:
-        # Allow creating first handoff from empty mechanical base + semantic patch
-        data = empty_checkpoint(
-            task_id=task_id,
-            workspace_path=str(workspace),
-            source="handoff",
-        )
+        data = empty_checkpoint(task_id=task_id, workspace_path=str(workspace), source="handoff")
         if err:
             data.setdefault("provenance", {})["notes"] = f"prior load: {err}"
     data = create_mechanical_checkpoint(
-        workspace,
-        config,
-        task_id,
-        git_state=git_state,
-        existing=data,
-        host=args.host,
-        trigger="handoff",
+        workspace, config, task_id, git_state=git_state, existing=data,
+        host=args.host, trigger="handoff",
     )
     if args.semantic_json:
         patch = json.loads(Path(args.semantic_json).read_text(encoding="utf-8"))
+        if not isinstance(patch, dict):
+            print("semantic JSON must be an object", file=sys.stderr)
+            return 2
         data = merge_checkpoint(data, scrub(patch))
         data.setdefault("provenance", {})["kind"] = "handoff"
     if args.objective:
         data.setdefault("task", {})["objective"] = args.objective
-    path = save_checkpoint(workspace, config, data)
     md = render_handoff(data)
-    hp = handoff_path(workspace, config, task_id)
-    atomic_write_text(hp, md)
+    if previous_text is not None and _stable_handoff_text(previous_text) == _stable_handoff_text(md):
+        _print_json({
+            "ok": True, "unchanged": True, "task_id": task_id,
+            "name": task_id, "handoff": str(previous_handoff),
+            "message": f"این handoff قبلاً با نام «{task_id}» و شناسه «{task_id}» ذخیره شده؛ تغییری برای ثبت مجدد وجود ندارد.",
+        })
+        return 0
+    path = save_checkpoint(workspace, config, data)
+    atomic_write_text(previous_handoff, md)
     if not getattr(args, "no_activate", False):
         _maybe_set_active(workspace, task_id, activate=True)
-    _print_json(
-        {"ok": True, "checkpoint": str(path), "handoff": str(hp), "task_id": task_id}
-    )
+    _print_json({"ok": True, "unchanged": False, "checkpoint": str(path), "handoff": str(previous_handoff), "task_id": task_id, "name": task_id})
     return 0
 
 
@@ -578,9 +625,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-activate", action="store_true")
     sp.set_defaults(func=cmd_checkpoint)
 
-    sp = sub.add_parser("handoff", help="Refresh checkpoint + write HANDOFF.md")
+    sp = sub.add_parser("handoff", help="Save, list, or delete handoff documents")
     add_ws(sp)
-    sp.add_argument("--task", required=True)
+    hsub = sp.add_subparsers(dest="handoff_command")
+    hlist = hsub.add_parser("list", help="List saved handoff documents")
+    add_ws(hlist)
+    hlist.set_defaults(func=cmd_handoff)
+    hdelete = hsub.add_parser("delete", help="Delete only a task's HANDOFF.md document")
+    add_ws(hdelete)
+    hdelete.add_argument("task_id")
+    hdelete.add_argument("--yes", action="store_true", help="Confirm deletion of HANDOFF.md only")
+    hdelete.set_defaults(func=cmd_handoff)
+    sp.add_argument("--task", default=None)
     sp.add_argument("--host", default=None)
     sp.add_argument("--objective", default=None)
     sp.add_argument("--semantic-json", default=None)
