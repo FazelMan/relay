@@ -59,7 +59,7 @@ plans/handoffs/<task-id>/
 
 1. Work in **Claude Code**; optional `PreCompact` hook saves a mechanical checkpoint.
 2. Run `/handoff` (or `python3 -m relay handoff --task …`) before context/quota pressure peaks.
-3. Inspect active handoffs with `python3 -m relay handoff list`; mark finished work with `python3 -m relay handoff done <task-id>`. This removes the handoff document from the list while preserving checkpoint/history. Use `python3 -m relay handoff delete <task-id>` when discarding a handoff without marking the task complete.
+3. Inspect active handoffs with `python3 -m relay handoff list`; mark finished work with `python3 -m relay handoff done <task-id>`. This removes the handoff document from the list while preserving checkpoint/history. Use `python3 -m relay handoff delete <task-id> --yes` when discarding a handoff without marking the task complete.
 3. Open the **same repository** in **Cursor** or **Codex**.
 4. `python3 -m relay resume --task <id>` → read `HANDOFF.md` → verify Git → continue.
 5. Refresh the checkpoint after milestones.
