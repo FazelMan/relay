@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 from .config import load_config
 from .gitinfo import collect_git_state
 from .paths import resolve_workspace
-from .storage import handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path
+from .storage import handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path, save_checkpoint, ensure_within, storage_root
+from .active_task import read_active_task, clear_active_task
 
 
 def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = True) -> None:
@@ -52,6 +53,47 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path != "/api/handoff/action":
+                self._json({"ok": False, "error": "Not found."}, 404)
+                return
+            origin = self.headers.get("Origin", "")
+            expected = f"http://{self.headers.get('Host', '')}"
+            if origin and origin != expected:
+                self._json({"ok": False, "error": "Cross-origin request rejected."}, 403)
+                return
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                self._json({"ok": False, "error": "Local requests only."}, 403)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length < 1 or length > 4096: raise ValueError("Invalid request size.")
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                action, tid = payload.get("action"), str(payload.get("task_id", ""))
+                if action not in ("done", "delete") or not tid or "/" in tid or chr(92) in tid or ".." in tid:
+                    raise ValueError("Invalid action or task id.")
+                hp = handoff_path(workspace, config, tid)
+                if hp.is_symlink() or hp.parent.is_symlink():
+                    self._json({"ok": False, "error": "Refusing to operate through a symlink."}, 400); return
+                ensure_within(storage_root(workspace, config), hp)
+                if not hp.is_file(): self._json({"ok": False, "error": "Handoff document not found."}, 404); return
+                if action == "done":
+                    data, _, err = latest_valid_checkpoint(workspace, config, tid)
+                    if data is None: self._json({"ok": False, "error": err or "Valid checkpoint not found."}, 409); return
+                    from datetime import datetime, timezone
+                    data.setdefault("task", {})["status"] = "complete"
+                    data.setdefault("provenance", {})["handoff_done_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                    save_checkpoint(workspace, config, data)
+                hp.unlink()
+                active_cleared = False
+                if action == "done" and read_active_task(workspace) == tid: active_cleared = clear_active_task(workspace)
+                self._json({"ok": True, "action": action, "task_id": tid, "active_task_cleared": active_cleared})
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                self._json({"ok": False, "error": str(exc) or "Invalid request."}, 400)
+            except OSError:
+                self._json({"ok": False, "error": "Could not update the handoff file."}, 500)
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
