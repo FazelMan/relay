@@ -33,6 +33,8 @@ class ResumeReport:
     host_hints: dict[str, str] = field(default_factory=dict)
     live_git: dict[str, Any] = field(default_factory=dict)
     recorded_git: dict[str, Any] = field(default_factory=dict)
+    workspace_changes: dict[str, Any] = field(default_factory=dict)
+    conflict_policy: list[str] = field(default_factory=list)
     checkpoint: dict[str, Any] | None = None
     resolution_note: str = ""
 
@@ -51,6 +53,8 @@ class ResumeReport:
             "host_hints": self.host_hints,
             "live_git": self.live_git,
             "recorded_git": self.recorded_git,
+            "workspace_changes": self.workspace_changes,
+            "conflict_policy": self.conflict_policy,
             "resolution_note": self.resolution_note,
             "overwrite_user_changes": False,
         }
@@ -108,16 +112,18 @@ def build_continuation_instruction(report: "ResumeReport") -> str:
         "",
         f"1. Read `{report.handoff_path or '(missing HANDOFF.md)'}`",
         f"2. Read `{report.checkpoint_path or '(missing checkpoint.json)'}`",
-        "3. Run `git status` and compare branch/HEAD to the recorded snapshot.",
+        "3. Run git status and compare branch/HEAD to the recorded snapshot.",
+        "4. Treat live workspace as authoritative for file existence; checkpoint data is historical context, not an instruction to revert.",
+        "5. Never run checkout/reset/clean or overwrite files merely to match the checkpoint. Preserve staged, unstaged, and untracked user work.",
     ]
     if report.discrepancies:
-        lines.append("4. Resolve discrepancies before editing:")
+        lines.append("6. Resolve discrepancies before editing:")
         for d in report.discrepancies:
             lines.append(f"   - {d}")
         step = 5
     else:
-        lines.append("4. No major discrepancies reported; still spot-check cited paths.")
-        step = 5
+        lines.append("6. No major discrepancies reported; still spot-check cited paths.")
+        step = 7
     if report.next_steps:
         lines.append(f"{step}. Start with: {report.next_steps[0]}")
         if len(report.next_steps) > 1:
@@ -249,6 +255,26 @@ def prepare_resume(
     if used_fallback:
         summary_parts.append("Loaded from history fallback.")
 
+    recorded_paths = set(recorded.get("changed_paths") or [])
+    live_paths = set(live.get("changed_paths") or [])
+    workspace_changes = {
+        "newly_changed_since_checkpoint": sorted(live_paths - recorded_paths),
+        "no_longer_reported_changed": sorted(recorded_paths - live_paths),
+        "currently_changed": sorted(live_paths),
+        "untracked": sorted(live.get("untracked_paths") or []),
+        "staged": sorted(live.get("staged_paths") or []),
+        "unstaged": sorted(live.get("unstaged_paths") or []),
+        "note": "Status deltas are observations only; a path no longer listed is not proof of deletion.",
+    }
+    conflict_policy = [
+        "Do not auto-merge or overwrite workspace files during resume.",
+        "If recorded task assumptions and live files disagree, inspect the diff and ask before destructive changes.",
+        "A changed branch/HEAD is a warning, not permission to reset or switch branches.",
+        "Use Git diff/status to verify additions, modifications, deletions, renames, and untracked files.",
+    ]
+    if workspace_changes["newly_changed_since_checkpoint"] or workspace_changes["no_longer_reported_changed"]:
+        discrepancies.append("workspace path set differs from checkpoint; inspect workspace_changes before editing")
+
     report = ResumeReport(
         task_id=tid,
         checkpoint_path=str(path) if path else None,
@@ -260,6 +286,8 @@ def prepare_resume(
         next_steps=next_steps,
         continuation_summary=" | ".join(summary_parts),
         live_git=live,
+        workspace_changes=workspace_changes,
+        conflict_policy=conflict_policy,
         recorded_git={
             "branch": recorded.get("branch"),
             "head": recorded.get("head"),
