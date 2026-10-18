@@ -8,7 +8,7 @@ description: >
 license: MIT
 metadata:
   author: FazelMan/relay
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Handoff (portable core)
@@ -28,6 +28,8 @@ and resume judgment.
 | **Resume** | `resume` | Reconcile vs workspace, then continue |
 | **Status** | `status` | Freshness, monitoring capabilities, readiness |
 | **Plan** | `plan` | Continuation plan; checkpoint stays factual |
+| **List** | `list` | List saved handoff documents and task IDs |
+| **Delete** | `delete <task-id>` | Delete only that task’s `HANDOFF.md`; preserve checkpoint/history and project work |
 
 ## Storage (canonical)
 
@@ -81,7 +83,7 @@ silently `default`). See [docs/active-task.md](../../docs/active-task.md).
 4. `python3 -m relay handoff --task <id> --semantic-json <patch.json> --host <host>`
 5. Tell the user the paths. Recommend a fresh session for independent tasks.
 
-## Resume workflow
+## List and delete workflow\n\n- `python3 -m relay handoff list` lists task-specific handoff documents and their IDs.\n- `python3 -m relay handoff delete <task-id> --yes` deletes only `HANDOFF.md`. It never deletes `checkpoint.json`, `history/`, the task directory, or project files.\n- If a repeated save produces the same handoff content, Relay reports that it was already saved under the same name and task ID and avoids creating a redundant checkpoint-history entry.\n\n## Resume workflow
 
 1. `python3 -m relay resume --task <id>` (or status to list tasks).
 2. Read `HANDOFF.md` + `checkpoint.json`.
