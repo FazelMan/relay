@@ -33,6 +33,9 @@ class Config:
     allow_paths_outside_workspace: bool = False
     context_capacity_tokens: int | None = None  # optional host-configured capacity
     log_level: str = "info"
+    handoff_mode: str = "suggest"  # manual | suggest | prepare
+    handoff_optimize_for: str = "balanced"  # cost | time | quality | balanced
+    handoff_detail: str = "standard"  # compact | standard | full
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -68,6 +71,15 @@ def config_from_mapping(data: dict[str, Any]) -> Config:
         capacity = int(capacity)
         if capacity <= 0:
             raise ValueError("context_capacity_tokens must be positive")
+    handoff_mode = str(data.get("handoff_mode", DEFAULTS.handoff_mode))
+    if handoff_mode not in {"manual", "suggest", "prepare"}:
+        raise ValueError("handoff_mode must be manual, suggest, or prepare")
+    optimize_for = str(data.get("handoff_optimize_for", DEFAULTS.handoff_optimize_for))
+    if optimize_for not in {"cost", "time", "quality", "balanced"}:
+        raise ValueError("handoff_optimize_for must be cost, time, quality, or balanced")
+    handoff_detail = str(data.get("handoff_detail", DEFAULTS.handoff_detail))
+    if handoff_detail not in {"compact", "standard", "full"}:
+        raise ValueError("handoff_detail must be compact, standard, or full")
     return Config(
         storage_dir=str(data.get("storage_dir", DEFAULTS.storage_dir)),
         history_limit=int(data.get("history_limit", DEFAULTS.history_limit)),
@@ -94,6 +106,9 @@ def config_from_mapping(data: dict[str, Any]) -> Config:
         ),
         context_capacity_tokens=capacity,
         log_level=str(data.get("log_level", DEFAULTS.log_level)),
+        handoff_mode=handoff_mode,
+        handoff_optimize_for=optimize_for,
+        handoff_detail=handoff_detail,
     )
 
 
@@ -133,6 +148,9 @@ warning_cooldown_seconds = 300
 auto_handoff_on_critical = true
 mechanical_on_precompact = true
 mechanical_on_stop = false
+handoff_mode = "suggest" # manual | suggest | prepare
+handoff_optimize_for = "balanced" # cost | time | quality | balanced
+handoff_detail = "standard" # compact | standard | full
 # Optional: used only when a host reports absolute context_tokens.
 # context_capacity_tokens = 200000
 
