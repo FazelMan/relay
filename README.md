@@ -153,6 +153,29 @@ python3 -m relay uninstall --dest "$HOME/.claude/skills/handoff"
 
 With no `--host` or `--dest`, the CLI checks the default install locations for Claude Code, Codex and Cursor.
 
+## Local dashboard (optional)
+
+Relay includes a small, read-only bilingual dashboard. It uses Python's standard library, reads the current workspace artifacts, and makes no cloud calls or LLM requests.
+
+Start it from the project root:
+
+```bash
+python3 -m relay dashboard
+# Optional: choose another local port
+python3 -m relay dashboard --port 8766
+```
+
+Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Use the **فا / EN** control to switch between Persian (RTL) and English (LTR). Stop the server with Ctrl+C.
+
+The first version is intentionally local and read-only:
+- Overview of tracked tasks, handoff availability and recent checkpoint activity.
+- Per-task checkpoint details and handoff preview.
+- Lightweight task-graph view based on saved `next_steps`.
+- Decision/constraint summary based on checkpoint data.
+- Evidence is displayed only when it exists in saved data; Relay does not claim tests passed merely because a task is marked complete.
+
+The dashboard does not execute tests, edit tasks, trigger Resume, or write to project files. For changes, continue using the CLI and agent Skill. Keep the server bound to localhost; do not expose it to a network you do not trust.
+
 ## First-run setup
 
 ### 1. Choose a task ID
