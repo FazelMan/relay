@@ -1,41 +1,20 @@
 #!/usr/bin/env bash
-# Install or remove Handoff skill adapters (+ optional hooks).
+# Thin wrapper around `python3 -m relay install|uninstall` (safe, non-destructive).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
 usage() {
   cat <<'EOF'
 Usage: install.sh <claude-code|codex|cursor|uninstall> [--dest DIR] [--with-hooks]
 
-  claude-code  ~/.claude/skills/handoff
-  codex        ~/.agents/skills/handoff
-  cursor       ~/.cursor/skills/handoff
-  uninstall    Remove default personal installs
+Safe install: copies only Relay-owned files, backs up conflicts, preserves
+custom files, writes .relay-install-manifest.json, and installs bin/relay-run.
 
-  --with-hooks  Also print hook install hints (does not silently modify host settings)
+Uninstall removes only files listed in the install manifest.
 EOF
-}
-
-install_layout() {
-  local dest="$1"
-  local adapter="$2"
-
-  mkdir -p "$dest"
-  cp "$ROOT/SKILL.md" "$dest/PORTABLE.md"
-  cp "$adapter" "$dest/SKILL.md"
-  rm -rf "$dest/references" "$dest/templates"
-  cp -R "$ROOT/references" "$dest/references"
-  cp -R "$ROOT/templates" "$dest/templates"
-  # Point agents at the repo's relay package
-  printf '%s\n' "$REPO_ROOT" >"$dest/RELAY_ROOT"
-  cat >"$dest/relay-env.sh" <<EOF
-# Source before python3 -m relay if Relay is not on PYTHONPATH
-export PYTHONPATH="${REPO_ROOT}\${PYTHONPATH:+:\$PYTHONPATH}"
-EOF
-  printf 'Installed handoff skill to %s\n' "$dest"
-  printf 'Set PYTHONPATH to include %s (see %s/relay-env.sh)\n' "$REPO_ROOT" "$dest"
 }
 
 WITH_HOOKS=0
@@ -61,40 +40,23 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$cmd" in
-  claude-code)
-    dest="${dest_override:-$HOME/.claude/skills/handoff}"
-    install_layout "$dest" "$ROOT/adapters/claude-code/SKILL.md"
-    if [[ "$WITH_HOOKS" -eq 1 ]]; then
-      printf 'Optional hooks template: %s\n' "$ROOT/adapters/claude-code/hooks.json"
-      printf 'Merge into Claude Code hooks settings; keep mechanical-only.\n'
+  claude-code|codex|cursor)
+    args=(install "$cmd")
+    if [[ -n "$dest_override" ]]; then
+      args+=(--dest "$dest_override")
     fi
-    ;;
-  codex)
-    dest="${dest_override:-$HOME/.agents/skills/handoff}"
-    install_layout "$dest" "$ROOT/adapters/codex/SKILL.md"
+    python3 -m relay "${args[@]}"
     if [[ "$WITH_HOOKS" -eq 1 ]]; then
-      printf 'Optional hooks template: %s\n' "$ROOT/adapters/codex/hooks.json"
-      printf 'Copy to ~/.codex/hooks.json or <project>/.codex/hooks.json and trust via /hooks.\n'
+      printf 'Optional hooks template: %s/adapters/%s/hooks.json\n' "$ROOT" "$cmd"
+      printf 'Point hook commands at <dest>/bin/relay-run (omit --task; uses active-task registry).\n'
     fi
-    ;;
-  cursor)
-    dest="${dest_override:-$HOME/.cursor/skills/handoff}"
-    install_layout "$dest" "$ROOT/adapters/cursor/SKILL.md"
-    cp "$ROOT/adapters/cursor/relay-continuity.mdc" "$dest/relay-continuity.mdc"
-    printf 'Optional: copy relay-continuity.mdc into the project .cursor/rules/\n'
     ;;
   uninstall)
-    for d in \
-      "$HOME/.claude/skills/handoff" \
-      "$HOME/.agents/skills/handoff" \
-      "$HOME/.cursor/skills/handoff"; do
-      if [[ -d "$d" ]]; then
-        rm -rf "$d"
-        printf 'Removed %s\n' "$d"
-      else
-        printf 'Skip (missing): %s\n' "$d"
-      fi
-    done
+    if [[ -n "$dest_override" ]]; then
+      python3 -m relay uninstall --dest "$dest_override"
+    else
+      python3 -m relay uninstall
+    fi
     ;;
   *)
     usage

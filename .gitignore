@@ -1,4 +1,5 @@
 .relay/local/
+# active-task.json may be kept local or committed; ignore local guard noise only
 __pycache__/
 *.py[cod]
 .pytest_cache/

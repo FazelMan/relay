@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .active_task import (
+    MECHANICAL_FALLBACK_ID,
+    clear_active_task,
+    read_active_task,
+    resolve_task_id,
+    set_active_task,
+)
 from .config import EXAMPLE_TOML, load_config
 from .gitinfo import collect_git_state
 from .guard import (
@@ -18,6 +25,7 @@ from .guard import (
     local_state_path,
 )
 from .handoff_md import render_handoff
+from .install_lib import install_adapter, uninstall_adapter
 from .monitor import (
     Observation,
     context_from_utilization,
@@ -28,7 +36,7 @@ from .monitor import (
 )
 from .paths import resolve_workspace
 from .resume import prepare_resume
-from .schema import merge_checkpoint, validate_checkpoint
+from .schema import empty_checkpoint, merge_checkpoint, validate_checkpoint
 from .secrets import scrub
 from .storage import (
     StorageError,
@@ -47,6 +55,11 @@ from .storage import (
 
 def _print_json(data: Any) -> None:
     print(json.dumps(data, indent=2))
+
+
+def _maybe_set_active(workspace: Path, task_id: str, *, activate: bool) -> None:
+    if activate and task_id != MECHANICAL_FALLBACK_ID:
+        set_active_task(workspace, task_id, set_by="cli")
 
 
 def cmd_checkpoint(args: argparse.Namespace) -> int:
@@ -77,6 +90,8 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         cp.setdefault("task", {})["objective"] = args.objective
 
     path = save_checkpoint(workspace, config, cp)
+    if not getattr(args, "no_activate", False):
+        _maybe_set_active(workspace, task_id, activate=True)
     result = {"ok": True, "path": str(path), "task_id": task_id, "trigger": args.trigger}
     if args.write_handoff:
         md = render_handoff(cp)
@@ -92,11 +107,16 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     config = load_config(workspace)
     task_id = sanitize_task_id(args.task)
     data, path, err = latest_valid_checkpoint(workspace, config, task_id)
-    if data is None:
-        print(json.dumps({"ok": False, "error": err}), file=sys.stderr)
-        return 1
-    # Refresh mechanical repo state before writing handoff.
     git_state = collect_git_state(workspace)
+    if data is None:
+        # Allow creating first handoff from empty mechanical base + semantic patch
+        data = empty_checkpoint(
+            task_id=task_id,
+            workspace_path=str(workspace),
+            source="handoff",
+        )
+        if err:
+            data.setdefault("provenance", {})["notes"] = f"prior load: {err}"
     data = create_mechanical_checkpoint(
         workspace,
         config,
@@ -110,11 +130,17 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         patch = json.loads(Path(args.semantic_json).read_text(encoding="utf-8"))
         data = merge_checkpoint(data, scrub(patch))
         data.setdefault("provenance", {})["kind"] = "handoff"
-    save_checkpoint(workspace, config, data)
+    if args.objective:
+        data.setdefault("task", {})["objective"] = args.objective
+    path = save_checkpoint(workspace, config, data)
     md = render_handoff(data)
     hp = handoff_path(workspace, config, task_id)
     atomic_write_text(hp, md)
-    _print_json({"ok": True, "checkpoint": str(path), "handoff": str(hp), "task_id": task_id})
+    if not getattr(args, "no_activate", False):
+        _maybe_set_active(workspace, task_id, activate=True)
+    _print_json(
+        {"ok": True, "checkpoint": str(path), "handoff": str(hp), "task_id": task_id}
+    )
     return 0
 
 
@@ -123,21 +149,28 @@ def cmd_status(args: argparse.Namespace) -> int:
     config = load_config(workspace)
     tasks = list_tasks(workspace, config)
     legacy = [str(p) for p in list_legacy_handoffs(workspace, config)]
+    active = read_active_task(workspace)
     report: dict[str, Any] = {
         "relay_version": __version__,
         "workspace": str(workspace),
         "storage_dir": config.storage_dir,
+        "active_task": active,
         "tasks": tasks,
         "legacy_handoffs": legacy,
         "monitoring": {
-            "context": "host-dependent; use guard-eval with explicit metrics or Claude SessionStart tokens + context_capacity_tokens",
+            "context": (
+                "host-dependent; use guard-eval with explicit metrics or Claude "
+                "SessionStart tokens + context_capacity_tokens"
+            ),
             "quota": "unsupported unless rate-limit signal provided",
+            "automatic": False,
         },
         "git": collect_git_state(workspace),
     }
-    if args.task:
-        tid = sanitize_task_id(args.task)
-        data, path, err = latest_valid_checkpoint(workspace, config, tid)
+    selected = args.task or active
+    if selected:
+        tid = sanitize_task_id(selected)
+        data, _path, err = latest_valid_checkpoint(workspace, config, tid)
         report["selected_task"] = tid
         report["checkpoint_path"] = str(checkpoint_path(workspace, config, tid))
         report["handoff_path"] = str(handoff_path(workspace, config, tid))
@@ -167,18 +200,23 @@ def cmd_resume(args: argparse.Namespace) -> int:
 def cmd_guard_eval(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
-    context: Observation | None = None
-    quota: Observation | None = None
+    resolution = resolve_task_id(
+        workspace,
+        config,
+        args.task,
+        allow_mechanical_fallback=True,
+    )
+    task_id = resolution.task_id
 
     if args.context_pct is not None:
-        context = context_from_utilization(
+        context: Observation | None = context_from_utilization(
             float(args.context_pct) / 100.0, source=args.source or "cli"
         )
     else:
         context = unsupported_context(source=args.source or "cli")
 
     if args.rate_limited:
-        quota = quota_from_rate_limit(source=args.source or "cli")
+        quota: Observation | None = quota_from_rate_limit(source=args.source or "cli")
     else:
         quota = unsupported_quota(source=args.source or "cli")
 
@@ -187,7 +225,9 @@ def cmd_guard_eval(args: argparse.Namespace) -> int:
         quota=quota,
         thresholds=config.thresholds,
         session_interrupted=args.interrupted,
-        handoff_artifacts_ready=args.handoff_ready,
+        handoff_artifacts_ready=handoff_path(workspace, config, task_id).is_file()
+        if not resolution.is_mechanical_fallback
+        else False,
         resuming=args.resuming,
     )
 
@@ -197,17 +237,33 @@ def cmd_guard_eval(args: argparse.Namespace) -> int:
             local_state_path(workspace), config.warning_cooldown_seconds
         )
         deduper.load()
-        key = f"{decision.state}:{decision.context_state}:{decision.quota_state}"
-        if not deduper.should_emit(key):
+        if not deduper.should_emit(
+            warning_level=decision.warning_level,
+            task_id=task_id,
+            session_id=args.session_id,
+        ):
             warn = False
             decision.should_warn = False
             decision.warning_message = None
         else:
             deduper.save()
+    elif not warn and not args.no_dedupe:
+        deduper = WarningDeduper(
+            local_state_path(workspace), config.warning_cooldown_seconds
+        )
+        deduper.load()
+        deduper.note_recovery(task_id=task_id, session_id=args.session_id)
+        deduper.save()
 
-    if args.task and decision.should_mechanical_checkpoint:
-        task_id = sanitize_task_id(args.task)
-        existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
+    checkpoint_written = None
+    if decision.should_mechanical_checkpoint:
+        # Mechanical fallback: never merge semantic fields from unrelated tasks.
+        existing = None
+        if not resolution.is_mechanical_fallback:
+            existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
+        elif latest_valid_checkpoint(workspace, config, task_id)[0] is not None:
+            existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
+
         git_state = collect_git_state(workspace)
         cp = create_mechanical_checkpoint(
             workspace,
@@ -218,14 +274,29 @@ def cmd_guard_eval(args: argparse.Namespace) -> int:
             host=args.host,
             trigger="risk",
         )
+        if resolution.is_mechanical_fallback:
+            cp.setdefault("provenance", {})["notes"] = resolution.message
         cp["context"] = context.to_dict() if context else cp.get("context")
         cp["quota"] = quota.to_dict() if quota else cp.get("quota")
         cp = apply_guard_to_checkpoint(cp, decision)
-        save_checkpoint(workspace, config, cp)
-        if decision.should_prepare_handoff and config.auto_handoff_on_critical:
-            atomic_write_text(handoff_path(workspace, config, task_id), render_handoff(cp))
+        checkpoint_written = str(save_checkpoint(workspace, config, cp))
+        if (
+            decision.should_prepare_handoff
+            and config.auto_handoff_on_critical
+            and not resolution.is_mechanical_fallback
+        ):
+            atomic_write_text(
+                handoff_path(workspace, config, task_id), render_handoff(cp)
+            )
 
-    _print_json(decision.to_dict() | {"warned": warn})
+    _print_json(
+        decision.to_dict()
+        | {
+            "warned": warn,
+            "task_resolution": resolution.to_dict(),
+            "checkpoint": checkpoint_written,
+        }
+    )
     return 0
 
 
@@ -234,15 +305,34 @@ def cmd_hook(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
     try:
-        event = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        event = {}
+        raw_stdin = sys.stdin.read()
+        event = json.loads(raw_stdin) if raw_stdin.strip() else {}
+    except json.JSONDecodeError as exc:
+        _print_json(
+            {
+                "ok": False,
+                "error": f"invalid hook JSON on stdin: {exc}",
+                "llm_invoked": False,
+                "checkpoint": None,
+            }
+        )
+        return 2
     if not isinstance(event, dict):
         event = {}
 
     host = args.host
     event_name = args.event or event.get("hook_event_name") or event.get("event") or ""
-    task_id = sanitize_task_id(args.task or "default")
+    # Explicit --task wins; otherwise resolve (never silent "default").
+    requested = args.task  # may be None
+    resolution = resolve_task_id(
+        workspace, config, requested, allow_mechanical_fallback=True
+    )
+    task_id = resolution.task_id
+    session_id = (
+        event.get("session_id")
+        or event.get("conversation_id")
+        or args.session_id
+    )
 
     context = unsupported_context(source=f"{host}:{event_name}")
     quota = unsupported_quota(source=f"{host}:{event_name}")
@@ -252,7 +342,6 @@ def cmd_hook(args: argparse.Namespace) -> int:
             event, capacity_tokens=config.context_capacity_tokens
         )
 
-    # PreCompact / Stop → mechanical checkpoint when configured
     do_checkpoint = False
     if event_name == "PreCompact" and config.mechanical_on_precompact:
         do_checkpoint = True
@@ -265,7 +354,11 @@ def cmd_hook(args: argparse.Namespace) -> int:
         context=context,
         quota=quota,
         thresholds=config.thresholds,
-        handoff_artifacts_ready=handoff_path(workspace, config, task_id).is_file(),
+        handoff_artifacts_ready=(
+            handoff_path(workspace, config, task_id).is_file()
+            if not resolution.is_mechanical_fallback
+            else False
+        ),
     )
 
     result: dict[str, Any] = {
@@ -274,49 +367,115 @@ def cmd_hook(args: argparse.Namespace) -> int:
         "event": event_name,
         "llm_invoked": False,
         "guard": decision.to_dict(),
+        "task_resolution": resolution.to_dict(),
+        "checkpoint": None,
     }
 
     if do_checkpoint:
-        existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
-        git_state = collect_git_state(workspace)
-        cp = create_mechanical_checkpoint(
-            workspace,
-            config,
-            task_id,
-            git_state=git_state,
-            existing=existing,
-            host=host,
-            trigger="mechanical",
-        )
-        cp["context"] = context.to_dict()
-        cp["quota"] = quota.to_dict()
-        cp = apply_guard_to_checkpoint(cp, decision)
-        path = save_checkpoint(workspace, config, cp)
-        result["checkpoint"] = str(path)
-        # Additional context for SessionStart compact matcher (Claude): point at handoff
+        try:
+            existing = None
+            if not resolution.is_mechanical_fallback:
+                existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
+            else:
+                # Only continue the mechanical fallback stream itself.
+                existing, _, _ = latest_valid_checkpoint(workspace, config, task_id)
+            git_state = collect_git_state(workspace)
+            cp = create_mechanical_checkpoint(
+                workspace,
+                config,
+                task_id,
+                git_state=git_state,
+                existing=existing,
+                host=host,
+                trigger="mechanical",
+            )
+            if resolution.is_mechanical_fallback:
+                cp.setdefault("provenance", {})["notes"] = resolution.message
+                # Keep semantic fields empty-ish for fallback identity
+                if existing is None:
+                    cp["task"]["objective"] = (
+                        cp["task"].get("objective")
+                        or "(unscoped mechanical snapshot — set active task)"
+                    )
+            cp["context"] = context.to_dict()
+            cp["quota"] = quota.to_dict()
+            cp = apply_guard_to_checkpoint(cp, decision)
+            path = save_checkpoint(workspace, config, cp)
+            result["checkpoint"] = str(path)
+        except StorageError as exc:
+            result["ok"] = False
+            result["error"] = str(exc)
+            _print_json(result)
+            return 2
+
         hp = handoff_path(workspace, config, task_id)
-        if hp.is_file() and event_name == "SessionStart":
-            # stdout may be injected as context by host — keep tiny
+        if (
+            hp.is_file()
+            and event_name == "SessionStart"
+            and not resolution.is_mechanical_fallback
+        ):
             print(
-                f"[relay] Resume artifacts: {hp} ; checkpoint: {path}",
+                f"[relay] Resume artifacts: {hp} ; checkpoint: {result['checkpoint']}",
                 file=sys.stderr,
             )
-            # For Claude SessionStart, stdout becomes additional context — keep bounded
             sys.stdout.write(
                 f"Relay: latest handoff at {hp}. Verify git status before continuing.\n"
             )
+            return 0
 
-    # Claude PreCompact: do not block compaction; only save
-    if host == "claude-code" and event_name == "PreCompact":
-        # Optional systemMessage via JSON on stdout is not always supported the same way;
-        # keep exit 0 and mechanical save only.
-        pass
+    # Warning dedupe for hooks (stderr only; do not fail the hook)
+    if decision.should_warn:
+        deduper = WarningDeduper(
+            local_state_path(workspace), config.warning_cooldown_seconds
+        )
+        deduper.load()
+        if deduper.should_emit(
+            warning_level=decision.warning_level,
+            task_id=task_id,
+            session_id=str(session_id) if session_id else None,
+        ):
+            deduper.save()
+            if decision.warning_message:
+                print(f"[relay] {decision.warning_message}", file=sys.stderr)
+        result["warned"] = True
+    else:
+        result["warned"] = False
 
-    if "checkpoint" not in result:
+    if not (
+        result.get("checkpoint")
+        and host == "claude-code"
+        and event_name == "SessionStart"
+        and not resolution.is_mechanical_fallback
+    ):
         _print_json(result)
-    elif host != "claude-code" or event_name != "SessionStart":
-        _print_json(result)
-    return 0
+    return 0 if result.get("ok", True) else 2
+
+
+def cmd_task(args: argparse.Namespace) -> int:
+    workspace = resolve_workspace(args.workspace)
+    if args.task_command == "set":
+        path = set_active_task(workspace, args.task_id, set_by="cli")
+        _print_json({"ok": True, "active_task": args.task_id, "path": str(path)})
+        return 0
+    if args.task_command == "get":
+        active = read_active_task(workspace)
+        config = load_config(workspace)
+        resolution = resolve_task_id(
+            workspace, config, None, allow_mechanical_fallback=True
+        )
+        _print_json(
+            {
+                "ok": True,
+                "active_task": active,
+                "resolution": resolution.to_dict(),
+            }
+        )
+        return 0
+    if args.task_command == "clear":
+        cleared = clear_active_task(workspace)
+        _print_json({"ok": True, "cleared": cleared})
+        return 0
+    return 2
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -335,6 +494,71 @@ def cmd_example_config(_: argparse.Namespace) -> int:
     return 0
 
 
+def _skill_paths() -> tuple[Path, Path]:
+    # relay/ -> repo root
+    repo = Path(__file__).resolve().parents[1]
+    skill = repo / "skills" / "handoff"
+    return repo, skill
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    repo, skill = _skill_paths()
+    host = args.host
+    adapters = {
+        "claude-code": skill / "adapters" / "claude-code" / "SKILL.md",
+        "codex": skill / "adapters" / "codex" / "SKILL.md",
+        "cursor": skill / "adapters" / "cursor" / "SKILL.md",
+    }
+    defaults = {
+        "claude-code": Path.home() / ".claude" / "skills" / "handoff",
+        "codex": Path.home() / ".agents" / "skills" / "handoff",
+        "cursor": Path.home() / ".cursor" / "skills" / "handoff",
+    }
+    dest = Path(args.dest).expanduser() if args.dest else defaults[host]
+    result = install_adapter(
+        dest=dest,
+        skill_root=skill,
+        repo_root=repo,
+        adapter_skill=adapters[host],
+        include_cursor_rule=(host == "cursor"),
+    )
+    out = result.to_dict()
+    out["host"] = host
+    out["wrapper"] = str(dest / "bin" / "relay-run")
+    out["hook_hint"] = (
+        f"Use {dest / 'bin' / 'relay-run'} hook --host {host} --event <Event> "
+        "(omit --task to resolve active-task registry)"
+    )
+    _print_json(out)
+    return 0 if result.ok else 2
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    defaults = {
+        "claude-code": Path.home() / ".claude" / "skills" / "handoff",
+        "codex": Path.home() / ".agents" / "skills" / "handoff",
+        "cursor": Path.home() / ".cursor" / "skills" / "handoff",
+    }
+    if args.dest:
+        dests = [Path(args.dest).expanduser()]
+    elif args.host:
+        dests = [defaults[args.host]]
+    else:
+        dests = list(defaults.values())
+    results = []
+    ok = True
+    for dest in dests:
+        if not dest.exists():
+            results.append({"ok": True, "dest": str(dest), "skipped": "missing"})
+            continue
+        r = uninstall_adapter(dest)
+        results.append(r)
+        if not r.get("ok", False):
+            ok = False
+    _print_json({"ok": ok, "results": results})
+    return 0 if ok else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="relay", description="Relay continuity toolkit")
     p.add_argument("--version", action="version", version=f"relay {__version__}")
@@ -349,15 +573,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--trigger", default="mechanical")
     sp.add_argument("--host", default=None)
     sp.add_argument("--objective", default=None)
-    sp.add_argument("--semantic-json", default=None, help="Optional agent-provided semantic patch")
+    sp.add_argument("--semantic-json", default=None)
     sp.add_argument("--write-handoff", action="store_true")
+    sp.add_argument("--no-activate", action="store_true")
     sp.set_defaults(func=cmd_checkpoint)
 
     sp = sub.add_parser("handoff", help="Refresh checkpoint + write HANDOFF.md")
     add_ws(sp)
     sp.add_argument("--task", required=True)
     sp.add_argument("--host", default=None)
+    sp.add_argument("--objective", default=None)
     sp.add_argument("--semantic-json", default=None)
+    sp.add_argument("--no-activate", action="store_true")
     sp.set_defaults(func=cmd_handoff)
 
     sp = sub.add_parser("status", help="Show tasks and recovery readiness")
@@ -373,6 +600,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("guard-eval", help="Evaluate risk from explicit metrics")
     add_ws(sp)
     sp.add_argument("--task", default=None)
+    sp.add_argument("--session-id", default=None)
     sp.add_argument("--context-pct", type=float, default=None)
     sp.add_argument("--rate-limited", action="store_true")
     sp.add_argument("--interrupted", action="store_true")
@@ -385,11 +613,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("hook", help="Host lifecycle hook (stdin JSON, no LLM)")
     add_ws(sp)
-    sp.add_argument("--host", required=True, choices=["claude-code", "codex", "cursor", "generic"])
+    sp.add_argument(
+        "--host", required=True, choices=["claude-code", "codex", "cursor", "generic"]
+    )
     sp.add_argument("--event", default=None)
-    sp.add_argument("--task", default="default")
+    sp.add_argument(
+        "--task",
+        default=None,
+        help="Optional. If omitted, resolve via RELAY_TASK / active-task registry / fallback",
+    )
+    sp.add_argument("--session-id", default=None)
     sp.add_argument("--force-checkpoint", action="store_true")
     sp.set_defaults(func=cmd_hook)
+
+    tsp = sub.add_parser("task", help="Manage project-local active task registry")
+    tsub = tsp.add_subparsers(dest="task_command", required=True)
+    tset = tsub.add_parser("set", help="Set active task id")
+    add_ws(tset)
+    tset.add_argument("task_id")
+    tset.set_defaults(func=cmd_task)
+    tget = tsub.add_parser("get", help="Show active task and resolution")
+    add_ws(tget)
+    tget.set_defaults(func=cmd_task)
+    tclr = tsub.add_parser("clear", help="Clear active task")
+    add_ws(tclr)
+    tclr.set_defaults(func=cmd_task)
 
     sp = sub.add_parser("validate", help="Validate a checkpoint.json file")
     sp.add_argument("path")
@@ -397,6 +645,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("example-config", help="Print example relay.toml")
     sp.set_defaults(func=cmd_example_config)
+
+    sp = sub.add_parser("install", help="Safe skill adapter install")
+    sp.add_argument("host", choices=["claude-code", "codex", "cursor"])
+    sp.add_argument("--dest", default=None)
+    sp.set_defaults(func=cmd_install)
+
+    sp = sub.add_parser("uninstall", help="Remove only Relay-owned install files")
+    sp.add_argument("--host", choices=["claude-code", "codex", "cursor"], default=None)
+    sp.add_argument("--dest", default=None)
+    sp.set_defaults(func=cmd_uninstall)
 
     return p
 

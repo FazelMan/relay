@@ -21,7 +21,15 @@ REQUIRED_TOP = (
 
 TASK_STATUSES = frozenset({"in_progress", "blocked", "complete", "unknown"})
 RISK_STATES = frozenset(
-    {"healthy", "elevated", "critical", "handoff_ready", "interrupted", "resuming"}
+    {
+        "healthy",
+        "early",
+        "elevated",
+        "critical",
+        "handoff_ready",
+        "interrupted",
+        "resuming",
+    }
 )
 METRIC_RELIABILITY = frozenset(
     {"valid", "stale", "historical", "rate_limited", "unavailable", "unsupported", "unknown"}

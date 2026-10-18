@@ -51,6 +51,14 @@ commit secrets).
 5. [references/safety-and-validation.md](references/safety-and-validation.md)
 6. [references/checkpoint-schema.md](references/checkpoint-schema.md)
 
+## Active task
+
+Before long work: `python3 -m relay task set <task-id>`.
+
+Hooks resolve `--task` from: explicit flag → `RELAY_TASK` → `.relay/active-task.json`
+→ sole semantic task dir → mechanical fallback `unscoped-mechanical` (never
+silently `default`). See [docs/active-task.md](../../docs/active-task.md).
+
 ## Hard rules
 
 - Never fabricate facts, tests, or commit IDs.

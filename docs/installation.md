@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.9+
-- Git optional (file-only mode works; Git fields report unavailable)
+- Git optional
 
 ```bash
 cd /path/to/relay
@@ -11,52 +11,76 @@ export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 python3 -m relay status
 ```
 
-## Skill adapters
+## Safe skill install
+
+Install is **non-destructive**:
+
+- Copies only Relay-owned files
+- Backs up conflicting files to `.relay-backup-<timestamp>/`
+- Preserves unrelated custom files in the destination
+- Writes `.relay-install-manifest.json`
+- Installs `bin/relay-run` (sets `PYTHONPATH` from `RELAY_ROOT`)
+- Idempotent on re-run
+
+Default destinations:
+
+- Claude Code: `~/.claude/skills/handoff`
+- Cursor: `~/.cursor/skills/handoff`
+- Codex: `~/.agents/skills/handoff`
 
 ```bash
-./skills/handoff/scripts/install.sh claude-code          # ~/.claude/skills/handoff
-./skills/handoff/scripts/install.sh cursor               # ~/.cursor/skills/handoff
-./skills/handoff/scripts/install.sh codex                # ~/.agents/skills/handoff
-./skills/handoff/scripts/install.sh claude-code --with-hooks
+./skills/handoff/scripts/install.sh claude-code
+./skills/handoff/scripts/install.sh cursor
+./skills/handoff/scripts/install.sh codex --with-hooks
+
+# or
+python3 -m relay install claude-code
+python3 -m relay install cursor --dest ".cursor/skills/handoff"
+```
+
+Paths with spaces are supported (`--dest "/tmp/my skills/handoff"`).
+
+### Uninstall
+
+Removes **only** files listed in the install manifest. Custom files remain.
+Refuses to delete a directory that has no Relay manifest.
+
+```bash
 ./skills/handoff/scripts/install.sh uninstall
+python3 -m relay uninstall --host claude-code
+python3 -m relay uninstall --dest ~/.claude/skills/handoff
 ```
 
-Project-local examples:
+## Hooks and package location
 
-```bash
-./skills/handoff/scripts/install.sh claude-code --dest .claude/skills/handoff
-./skills/handoff/scripts/install.sh cursor --dest .cursor/skills/handoff
-./skills/handoff/scripts/install.sh codex --dest .agents/skills/handoff
+Do **not** rely on a global undocumented `PYTHONPATH`. After install, hooks
+should invoke:
+
+```text
+~/.claude/skills/handoff/bin/relay-run hook --host claude-code --event PreCompact
 ```
 
-Install writes `RELAY_ROOT` and `relay-env.sh` so agents can set `PYTHONPATH`.
+`relay-run` reads sibling `RELAY_ROOT` (absolute path to the Relay checkout
+written at install time). Re-run install after moving the Relay repo.
 
-### Claude Code hooks
+Merge `hooks.json` from the adapter into host settings manually; install does
+not silently rewrite Claude/Codex settings.
 
-Merge `skills/handoff/adapters/claude-code/hooks.json` into your Claude Code hooks
-configuration. Hooks are mechanical only. Review before enabling.
+Omit `--task` in hooks; use the [active-task registry](active-task.md).
 
-### Codex hooks
+## What is automatic vs manual
 
-Copy `skills/handoff/adapters/codex/hooks.json` to `~/.codex/hooks.json` or
-`<project>/.codex/hooks.json`, then trust via `/hooks`.
-
-### Cursor rule (optional)
-
-Copy `skills/handoff/adapters/cursor/relay-continuity.mdc` to `.cursor/rules/`.
-
-## Uninstall
-
-`./skills/handoff/scripts/install.sh uninstall` removes default personal skill
-dirs. Project copies and host hook settings must be removed manually.
-
-## Namespace conflicts
-
-If `/handoff` already exists in Claude Code, rename the skill directory/frontmatter
-or remove the other skill. Personal skills override project skills.
+| Action | Automatic? |
+|--------|------------|
+| Mechanical checkpoint on PreCompact (if hooks trusted/enabled) | Yes |
+| Semantic HANDOFF.md content | Manual / agent `/handoff` |
+| Context % monitoring | Only with explicit metrics or configured capacity |
+| Quota monitoring | Only with explicit rate-limit signal |
+| Opening Cursor/Codex sessions | **Manual** |
 
 ## Security notes
 
 - No credentials in handoff files
 - No automatic destructive Git
-- Resume must verify the real workspace
+- Resume verifies the real workspace
+- Uninstall never deletes arbitrary project trees without a manifest

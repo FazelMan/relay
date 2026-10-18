@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0.0",
+  "checkpoint_id": "11111111-1111-4111-8111-111111111111",
+  "task_id": "rate-limit-api",
+  "updated_at": "2026-03-18T12:00:00Z",
+  "task": {
+    "objective": "Add rate limiting (Claude session handoff to Cursor)",
+    "phase": "implementation",
+    "status": "in_progress",
+    "completed": ["Drafted limiter module"],
+    "in_progress": ["Wire middleware"],
+    "decisions": [{"decision": "In-memory v1", "rationale": "No Redis", "evidence": "user-stated"}],
+    "next_steps": ["Wire middleware in src/app.py", "Add unit tests"],
+    "blockers": [],
+    "unresolved": [],
+    "relevant_paths": ["src/app.py"],
+    "files": {"created": [], "modified": ["src/app.py"], "deleted": []},
+    "tests": {"executed": [], "not_executed": [{"name": "unit", "reason": "not run"}]},
+    "project_instructions": []
+  },
+  "repository": {
+    "root": "",
+    "identity": "fixture",
+    "branch": "feature/rate-limit",
+    "head": "deadbeef",
+    "working_tree": "dirty",
+    "changed_paths": ["src/app.py"],
+    "staged_paths": [],
+    "unstaged_paths": ["src/app.py"],
+    "untracked_paths": [],
+    "git_available": true
+  },
+  "context": {
+    "utilization": null,
+    "capacity": null,
+    "remaining": null,
+    "observed_at": null,
+    "source": "claude-code",
+    "reliability": "unsupported"
+  },
+  "quota": {
+    "status": "unsupported",
+    "observed_at": null,
+    "source": null,
+    "reliability": "unsupported",
+    "detail": null
+  },
+  "risk": {
+    "state": "early",
+    "context_state": "early",
+    "quota_state": "healthy",
+    "reason": "fixture"
+  },
+  "provenance": {
+    "kind": "handoff",
+    "host": "claude-code",
+    "tool": "relay",
+    "notes": "fixture for Claude→Cursor"
+  },
+  "integrity": {"valid": true, "errors": []}
+}

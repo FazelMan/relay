@@ -27,18 +27,24 @@ No cloud database, no MCP requirement, no paid API for routine checkpointing.
 # From this repository
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 
+# Set / use an active task (hooks resolve this — never silent "default")
+python3 -m relay task set my-feature
+
 # Mechanical checkpoint (no LLM)
 python3 -m relay checkpoint --task my-feature --objective "Add rate limiting" --write-handoff
 
-# Status / resume prep
+# Status / resume prep (emits continuation_instruction for another agent)
 python3 -m relay status --task my-feature
 python3 -m relay resume --task my-feature
 
-# Install skill adapters
-./skills/handoff/scripts/install.sh claude-code   # /handoff
-./skills/handoff/scripts/install.sh cursor        # Cursor skills
-./skills/handoff/scripts/install.sh codex         # $handoff
+# Safe skill install (preserves custom files; installs bin/relay-run)
+./skills/handoff/scripts/install.sh claude-code
+./skills/handoff/scripts/install.sh cursor
+./skills/handoff/scripts/install.sh codex
 ```
+
+See [docs/active-task.md](docs/active-task.md), [docs/handoff-guard.md](docs/handoff-guard.md),
+and [docs/installation.md](docs/installation.md).
 
 Artifacts land in:
 
@@ -66,7 +72,20 @@ Details: [docs/cross-agent.md](docs/cross-agent.md).
 | Mechanical | **No** | Hooks, timers, explicit `relay checkpoint` / `relay hook` |
 | Semantic | Agent may update fields | Milestones, decisions, user `/handoff` via `--semantic-json` |
 
+Risk bands are distinct: **early (65%) / elevated (80%) / critical (90%)**.
+Early warnings do not suppress later critical warnings.
+
 See [docs/auto-checkpoint.md](docs/auto-checkpoint.md) and [docs/handoff-guard.md](docs/handoff-guard.md).
+
+## Automatic vs manual
+
+| Capability | Status |
+|------------|--------|
+| PreCompact mechanical save (hooks enabled + trusted) | Automatic |
+| Active-task routing for hooks | Automatic **after** `relay task set` |
+| Semantic handoff narrative | Manual / agent command |
+| Context % / quota monitoring | Manual metrics or limited host signals |
+| Opening another agent/session | **Manual** |
 
 ## Compatibility
 

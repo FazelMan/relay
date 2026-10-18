@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0.0",
+  "checkpoint_id": "22222222-2222-4222-8222-222222222222",
+  "task_id": "fix-auth-flow",
+  "updated_at": "2026-03-18T15:00:00Z",
+  "task": {
+    "objective": "Fix auth redirect loop (Claude handoff to Codex)",
+    "phase": "debugging",
+    "status": "in_progress",
+    "completed": ["Reproduced redirect loop"],
+    "in_progress": ["Patch callback handler"],
+    "decisions": [],
+    "next_steps": ["Patch callback in src/app.py", "Re-run failing test"],
+    "blockers": [],
+    "unresolved": [],
+    "relevant_paths": ["src/app.py"],
+    "files": {"created": [], "modified": ["src/app.py"], "deleted": []},
+    "tests": {
+      "executed": [{"name": "auth_redirect_test", "result": "fail"}],
+      "not_executed": []
+    },
+    "project_instructions": []
+  },
+  "repository": {
+    "root": "",
+    "identity": "fixture",
+    "branch": "fix/auth",
+    "head": "cafebabe",
+    "working_tree": "dirty",
+    "changed_paths": ["src/app.py"],
+    "staged_paths": [],
+    "unstaged_paths": ["src/app.py"],
+    "untracked_paths": [],
+    "git_available": true
+  },
+  "context": {
+    "utilization": null,
+    "capacity": null,
+    "remaining": null,
+    "observed_at": null,
+    "source": "claude-code",
+    "reliability": "unsupported"
+  },
+  "quota": {
+    "status": "unsupported",
+    "observed_at": null,
+    "source": null,
+    "reliability": "unsupported",
+    "detail": null
+  },
+  "risk": {
+    "state": "critical",
+    "context_state": "healthy",
+    "quota_state": "critical",
+    "reason": "fixture rate limit"
+  },
+  "provenance": {
+    "kind": "handoff",
+    "host": "claude-code",
+    "tool": "relay",
+    "notes": "fixture for Claude→Codex"
+  },
+  "integrity": {"valid": true, "errors": []}
+}

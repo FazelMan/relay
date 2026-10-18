@@ -1,42 +1,34 @@
 # Cross-agent continuation
 
+A receiving agent needs only the repository + portable artifacts. No original
+model session, conversation, or proprietary IDs are required.
+
 ## Claude Code → Cursor
 
-1. In Claude Code: `/handoff my-feature` (or CLI `relay handoff --task my-feature`).
-2. Confirm `plans/handoffs/my-feature/HANDOFF.md` and `checkpoint.json` exist.
-3. Open the same repo in Cursor.
-4. Ensure `PYTHONPATH` includes the Relay checkout (or install the skill).
-5. Run `python3 -m relay resume --task my-feature`.
-6. Read `HANDOFF.md`, verify Git, continue next steps.
-7. After progress: `python3 -m relay handoff --task my-feature`.
-
-Cursor does not receive Claude session IDs; only portable files matter.
+1. `python3 -m relay task set my-feature` (or `/handoff` which activates the task)
+2. `/handoff` / `python3 -m relay handoff --task my-feature`
+3. Open the **same repo** in Cursor (manual — no auto session launch)
+4. `python3 -m relay resume --task my-feature`
+5. Follow `continuation_instruction` in the JSON output / read `HANDOFF.md`
+6. Verify Git; do not overwrite newer user changes
+7. Continue next steps; refresh handoff after progress
 
 ## Claude Code → Codex
 
-Same artifact paths. In Codex use `$handoff resume my-feature` or the CLI.
-Optional Codex hooks need trust via `/hooks`.
+Same artifacts. In Codex: `$handoff resume my-feature` or the CLI.
+Optional Codex hooks require `/hooks` trust.
 
-## Generic agent
+## Resume output
 
-Point the agent at:
+`python3 -m relay resume` returns:
 
-- `skills/handoff/SKILL.md` (or installed PORTABLE.md)
-- `plans/handoffs/<task>/HANDOFF.md`
-- `python3 -m relay resume --task <task>`
+- Validated checkpoint path (or history fallback)
+- Discrepancies / missing paths
+- `continuation_instruction` (actionable Markdown)
+- `host_hints` for Claude / Cursor / Codex / generic
+- `overwrite_user_changes: false` (resume never writes the workspace)
 
-## If semantic handoff never ran
+## Fixtures
 
-The last **mechanical** checkpoint remains. Resume reports what Git looked like;
-ask the user to clarify intent for gaps.
-
-## Corrupt latest checkpoint
-
-Relay keeps history under `history/`. `resume` falls back to the newest valid
-history entry and reports the failure.
-
-## Another computer
-
-Committed `plans/handoffs/` travels with Git. `.relay/local/` does **not**.
-Machine-absolute paths in older checkpoints may need reinterpretation — always
-reconcile against the local workspace.
+Unit fixtures under `tests/fixtures/cross_agent/` exercise Claude→Cursor and
+Claude→Codex artifact layouts. They are **not** live host integration tests.
