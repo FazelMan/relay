@@ -40,6 +40,8 @@ from .schema import empty_checkpoint, merge_checkpoint, validate_checkpoint
 from .secrets import scrub
 from .storage import (
     StorageError,
+    ensure_within,
+    storage_root,
     atomic_write_text,
     checkpoint_path,
     create_mechanical_checkpoint,
@@ -105,6 +107,49 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
 def cmd_handoff(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
+    action = getattr(args, "handoff_action", None)
+    if action == "list":
+        entries = []
+        for tid in list_tasks(workspace, config):
+            hp = handoff_path(workspace, config, tid)
+            if hp.is_file() and not hp.is_symlink():
+                cp, _, _ = latest_valid_checkpoint(workspace, config, tid)
+                entries.append({"task_id": tid, "path": str(hp), "updated_at": (cp or {}).get("updated_at")})
+        legacy = [{"name": p.name, "path": str(p), "legacy": True} for p in list_legacy_handoffs(workspace, config) if p.is_file() and not p.is_symlink()]
+        _print_json({"ok": True, "handoffs": entries, "legacy_handoffs": legacy, "count": len(entries) + len(legacy)})
+        return 0
+    if action in ("delete", "done"):
+        raw_task = getattr(args, "handoff_task_id", None) or getattr(args, "task", None)
+        if not raw_task:
+            _print_json({"ok": False, "error": f"handoff {action} requires a task id"})
+            return 2
+        task_id = sanitize_task_id(raw_task)
+        hp = handoff_path(workspace, config, task_id)
+        if hp.is_symlink() or hp.parent.is_symlink():
+            _print_json({"ok": False, "error": "refusing to operate through a symlink"})
+            return 2
+        ensure_within(storage_root(workspace, config), hp)
+        if not hp.is_file():
+            _print_json({"ok": False, "error": "handoff document not found", "task_id": task_id, "path": str(hp)})
+            return 1
+        if action == "done":
+            data, _, err = latest_valid_checkpoint(workspace, config, task_id)
+            if data is None:
+                _print_json({"ok": False, "error": err or "valid checkpoint not found", "task_id": task_id})
+                return 2
+            data.setdefault("task", {})["status"] = "completed"
+            from datetime import datetime, timezone
+            data.setdefault("provenance", {})["handoff_done_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            save_checkpoint(workspace, config, data)
+        hp.unlink()
+        active_cleared = False
+        if action == "done" and read_active_task(workspace) == task_id:
+            active_cleared = clear_active_task(workspace)
+        _print_json({"ok": True, "action": action, "task_id": task_id, "removed_from_handoff_list": True, "deleted": str(hp), "active_task_cleared": active_cleared, "preserved": [str(checkpoint_path(workspace, config, task_id)), str(hp.parent / "history"), "project files"]})
+        return 0
+    if not args.task:
+        _print_json({"ok": False, "error": "refreshing a handoff requires --task <task-id>"})
+        return 2
     task_id = sanitize_task_id(args.task)
     data, path, err = latest_valid_checkpoint(workspace, config, task_id)
     git_state = collect_git_state(workspace)
@@ -578,9 +623,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-activate", action="store_true")
     sp.set_defaults(func=cmd_checkpoint)
 
-    sp = sub.add_parser("handoff", help="Refresh checkpoint + write HANDOFF.md")
+    sp = sub.add_parser("handoff", help="Create, list, delete, or complete a handoff")
     add_ws(sp)
-    sp.add_argument("--task", required=True)
+    sp.add_argument("handoff_action", nargs="?", choices=["list", "delete", "done"], default=None)
+    sp.add_argument("handoff_task_id", nargs="?", default=None)
+    sp.add_argument("--task", default=None, help="Task id (required when refreshing; alternative for delete/done)")
     sp.add_argument("--host", default=None)
     sp.add_argument("--objective", default=None)
     sp.add_argument("--semantic-json", default=None)
