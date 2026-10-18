@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import urllib.error
+import urllib.request
+import webbrowser
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,9 +16,22 @@ from .paths import resolve_workspace
 from .storage import handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path
 
 
-def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int = 8765) -> None:
+def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = True) -> None:
     workspace = resolve_workspace(workspace_arg)
     config = load_config(workspace)
+    # Reuse a live dashboard only when its reported workspace exactly matches.
+    if host in ("127.0.0.1", "localhost"):
+        for candidate in range(port, min(port + 32, 65536)):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{candidate}/api/overview", timeout=0.2) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                if payload.get("workspace") == str(workspace):
+                    url = f"http://127.0.0.1:{candidate}/"
+                    print(f"Relay Dashboard already running: {url}")
+                    if open_browser: webbrowser.open(url)
+                    return
+            except (OSError, ValueError, urllib.error.URLError):
+                pass
     ui_root = Path(__file__).resolve().parents[1] / "ui"
     if not (ui_root / "index.html").is_file():
         raise RuntimeError("Dashboard assets are missing; reinstall or update Relay.")
@@ -112,7 +128,24 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
             self.end_headers()
             self.wfile.write(body)
 
-    print(f"Relay Dashboard: http://{host}:{port}")
+    server = None
+    last_error = None
+    candidates = [port] if host not in ("127.0.0.1", "localhost") else range(port, min(port + 32, 65536))
+    for candidate in candidates:
+        try:
+            server = ThreadingHTTPServer((host, candidate), Handler)
+            break
+        except OSError as exc:
+            last_error = exc
+    if server is None:
+        raise RuntimeError(f"No available dashboard port in range {port}-{min(port + 31, 65535)}: {last_error}")
+    actual_port = int(server.server_address[1])
+    url = f"http://{host}:{actual_port}/"
+    print(f"Relay Dashboard: {url}")
     print(f"Workspace: {workspace}")
     print("Read-only local dashboard. Press Ctrl+C to stop.")
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    if open_browser: webbrowser.open(url)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
