@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: FazelMan/relay
   host: claude-code
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # Handoff — Claude Code adapter
@@ -33,9 +33,23 @@ portable core + Relay CLI.
 | Invocation | Mode |
 |------------|------|
 | `/handoff` or `/handoff save` [task] | Save |
-| `/handoff resume` [task] | Resume |
+| `/handoff resume` [task] | Resume by reconciling files and continuing work in this session |
 | `/handoff status` [task] | Status |
 | `/handoff plan` [task] | Plan |
+
+## Resume behavior
+
+For `/handoff resume <task-id>`:
+
+1. Run `python3 -m relay resume --task <task-id>` from the project root.
+2. Read the task's `HANDOFF.md` and `checkpoint.json`.
+3. Compare the saved state with current Git/workspace state and preserve newer user changes.
+4. Continue the actual unfinished work. Do not merely return a copy-paste prompt or stop at a summary.
+5. If no task ID is supplied, use the active task only when unambiguous; otherwise list available handoffs and ask which one.
+6. Never reset/clean/stash-drop or overwrite changes to force the workspace to match the checkpoint. Ask before risky/destructive actions.
+7. Report validation honestly and refresh the handoff after meaningful progress.
+
+The skill continues work in the current Claude Code session. It does not claim to open another provider/session automatically.
 
 ## Load order
 
