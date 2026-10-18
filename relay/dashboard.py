@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 import mimetypes
+import shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 from .config import load_config
 from .gitinfo import collect_git_state
 from .paths import resolve_workspace
-from .storage import StorageError, handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path, save_checkpoint, ensure_within, storage_root
+from .storage import StorageError, handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path, save_checkpoint, ensure_within, storage_root, task_dir
 from .active_task import read_active_task, clear_active_task
 
 
@@ -80,6 +81,29 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
         def do_POST(self) -> None:
             nonlocal workspace, config
             parsed = urlparse(self.path)
+            if parsed.path == "/api/workspace/choose":
+                origin = self.headers.get("Origin", "")
+                expected = f"http://{self.headers.get('Host', '')}"
+                if origin and origin != expected:
+                    self._json({"ok": False, "error": "Cross-origin request rejected."}, 403)
+                    return
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    self._json({"ok": False, "error": "Local requests only."}, 403)
+                    return
+                selected = choose_workspace_dialog(str(workspace))
+                if not selected:
+                    self._json({"ok": False, "cancelled": True, "error": "Folder selection cancelled."})
+                    return
+                try:
+                    candidate = Path(selected).resolve(strict=True)
+                    if not candidate.is_dir():
+                        raise ValueError("Choose an existing project folder.")
+                    workspace = resolve_workspace(str(candidate))
+                    config = load_config(workspace)
+                    self._json({"ok": True, "workspace": str(workspace)})
+                except (ValueError, TypeError, OSError, StorageError) as exc:
+                    self._json({"ok": False, "error": str(exc) or "Could not switch workspace."}, 400)
+                return
             if parsed.path == "/api/workspace/switch":
                 origin = self.headers.get("Origin", "")
                 expected = f"http://{self.headers.get('Host', '')}"
@@ -122,20 +146,28 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
                 if action not in ("done", "delete") or not tid or "/" in tid or chr(92) in tid or ".." in tid:
                     raise ValueError("Invalid action or task id.")
                 hp = handoff_path(workspace, config, tid)
-                if hp.is_symlink() or hp.parent.is_symlink():
+                td = task_dir(workspace, config, tid)
+                root = storage_root(workspace, config)
+                if td.is_symlink() or hp.is_symlink() or hp.parent.is_symlink():
                     self._json({"ok": False, "error": "Refusing to operate through a symlink."}, 400); return
-                ensure_within(storage_root(workspace, config), hp)
+                ensure_within(root, td)
+                if action == "delete":
+                    if not td.is_dir():
+                        self._json({"ok": False, "error": "Task data not found."}, 404); return
+                    shutil.rmtree(td)
+                    active_cleared = read_active_task(workspace) == tid and clear_active_task(workspace)
+                    self._json({"ok": True, "action": action, "task_id": tid, "task_deleted": True, "active_task_cleared": active_cleared})
+                    return
+                ensure_within(root, hp)
                 if not hp.is_file(): self._json({"ok": False, "error": "Handoff document not found."}, 404); return
-                if action == "done":
-                    data, _, err = latest_valid_checkpoint(workspace, config, tid)
-                    if data is None: self._json({"ok": False, "error": err or "Valid checkpoint not found."}, 409); return
-                    from datetime import datetime, timezone
-                    data.setdefault("task", {})["status"] = "complete"
-                    data.setdefault("provenance", {})["handoff_done_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-                    save_checkpoint(workspace, config, data)
+                data, _, err = latest_valid_checkpoint(workspace, config, tid)
+                if data is None: self._json({"ok": False, "error": err or "Valid checkpoint not found."}, 409); return
+                from datetime import datetime, timezone
+                data.setdefault("task", {})["status"] = "complete"
+                data.setdefault("provenance", {})["handoff_done_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                save_checkpoint(workspace, config, data)
                 hp.unlink()
-                active_cleared = False
-                if action == "done" and read_active_task(workspace) == tid: active_cleared = clear_active_task(workspace)
+                active_cleared = read_active_task(workspace) == tid and clear_active_task(workspace)
                 self._json({"ok": True, "action": action, "task_id": tid, "active_task_cleared": active_cleared})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._json({"ok": False, "error": str(exc) or "Invalid request."}, 400)
