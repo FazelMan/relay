@@ -17,6 +17,29 @@ from .storage import StorageError, handoff_path, latest_valid_checkpoint, list_t
 from .active_task import read_active_task, clear_active_task
 
 
+def choose_workspace_dialog(initial_dir: str = ".") -> str | None:
+    """Open a native folder chooser; return None when cancelled/unavailable."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+            selected = filedialog.askdirectory(
+                title="Choose the project folder for Relay Dashboard",
+                initialdir=str(Path(initial_dir).expanduser().resolve()),
+                mustexist=True,
+            )
+        finally:
+            root.destroy()
+        return str(Path(selected).expanduser().resolve()) if selected else None
+    except Exception:
+        # Tk may be unavailable in headless/minimal Python installations.
+        return None
+
+
 def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = True) -> None:
     workspace = resolve_workspace(workspace_arg)
     config = load_config(workspace)
