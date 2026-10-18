@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from .config import load_config
 from .gitinfo import collect_git_state
 from .paths import resolve_workspace
-from .storage import handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path, save_checkpoint, ensure_within, storage_root
+from .storage import StorageError, handoff_path, latest_valid_checkpoint, list_tasks, history_dir, checkpoint_path, save_checkpoint, ensure_within, storage_root
 from .active_task import read_active_task, clear_active_task
 
 
@@ -92,8 +92,10 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
                 self._json({"ok": True, "action": action, "task_id": tid, "active_task_cleared": active_cleared})
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 self._json({"ok": False, "error": str(exc) or "Invalid request."}, 400)
-            except OSError:
-                self._json({"ok": False, "error": "Could not update the handoff file."}, 500)
+            except StorageError as exc:
+                self._json({"ok": False, "error": str(exc) or "Storage operation rejected."}, 409)
+            except OSError as exc:
+                self._json({"ok": False, "error": f"Could not update the handoff file: {exc}"}, 500)
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)
