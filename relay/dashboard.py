@@ -78,7 +78,31 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
             self.wfile.write(body)
 
         def do_POST(self) -> None:
+            nonlocal workspace, config
             parsed = urlparse(self.path)
+            if parsed.path == "/api/workspace/switch":
+                origin = self.headers.get("Origin", "")
+                expected = f"http://{self.headers.get('Host', '')}"
+                if origin and origin != expected:
+                    self._json({"ok": False, "error": "Cross-origin request rejected."}, 403)
+                    return
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    self._json({"ok": False, "error": "Local requests only."}, 403)
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if length < 1 or length > 4096:
+                        raise ValueError("Invalid request size.")
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    candidate = Path(str(payload.get("path", ""))).expanduser().resolve(strict=True)
+                    if not candidate.is_dir() or candidate.is_symlink():
+                        raise ValueError("Choose an existing project folder.")
+                    workspace = resolve_workspace(str(candidate))
+                    config = load_config(workspace)
+                    self._json({"ok": True, "workspace": str(workspace)})
+                except (ValueError, TypeError, json.JSONDecodeError, OSError, StorageError) as exc:
+                    self._json({"ok": False, "error": str(exc) or "Could not switch workspace."}, 400)
+                return
             if parsed.path != "/api/handoff/action":
                 self._json({"ok": False, "error": "Not found."}, 404)
                 return
@@ -121,7 +145,30 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
                 self._json({"ok": False, "error": f"Could not update the handoff file: {exc}"}, 500)
 
         def do_GET(self) -> None:
+            nonlocal workspace, config
             parsed = urlparse(self.path)
+            if parsed.path == "/api/browse":
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    self._json({"ok": False, "error": "Local requests only."}, 403)
+                    return
+                from urllib.parse import parse_qs
+                raw_path = (parse_qs(parsed.query).get("path") or [str(Path.home())])[0]
+                try:
+                    current = Path(raw_path).expanduser().resolve(strict=True)
+                    if not current.is_dir():
+                        raise ValueError("This path is not a directory.")
+                    dirs = []
+                    for child in sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold())):
+                        try:
+                            if child.is_dir() and not child.is_symlink():
+                                dirs.append({"name": child.name, "path": str(child)})
+                        except OSError:
+                            continue
+                    parent = str(current.parent) if current.parent != current else None
+                    self._json({"ok": True, "current": str(current), "parent": parent, "directories": dirs[:300]})
+                except (OSError, ValueError) as exc:
+                    self._json({"ok": False, "error": str(exc) or "Could not list this folder."}, 400)
+                return
             if parsed.path == "/api/overview":
                 ids = list_tasks(workspace, config)
                 tasks = []
