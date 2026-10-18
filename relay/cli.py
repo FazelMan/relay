@@ -105,7 +105,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
 def _stable_handoff_text(text: str) -> str:
     """Ignore the generated timestamp when checking whether a handoff changed."""
     import re
-    return re.sub(r"(?m)^> \\*\\*Updated:\\*\\*.*$", "> **Updated:** <timestamp>", text).strip()
+    return re.sub(r"(?m)^> \*\*Updated:\*\*.*$", "> **Updated:** <timestamp>", text).strip()
 
 
 def cmd_handoff(args: argparse.Namespace) -> int:
