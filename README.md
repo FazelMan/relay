@@ -721,6 +721,7 @@ These commands are instructions for maintainers; their presence here does not im
 - [Installation](docs/installation.md)
 - [Active-task resolution](docs/active-task.md)
 - [Configuration](docs/configuration.md)
+- [Project memory convention](docs/project-memory.md)
 - [Auto Checkpoint](docs/auto-checkpoint.md)
 - [Handoff Guard](docs/handoff-guard.md)
 - [Cross-agent continuation](docs/cross-agent.md)
