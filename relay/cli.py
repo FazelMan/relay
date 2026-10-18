@@ -261,7 +261,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     if args.objective:
         data.setdefault("task", {})["objective"] = args.objective
     path = save_checkpoint(workspace, config, data)
-    md = render_handoff(data)
+    md = render_handoff(data, config.handoff_detail)
     hp = handoff_path(workspace, config, task_id)
     atomic_write_text(hp, md)
     if not getattr(args, "no_activate", False):
