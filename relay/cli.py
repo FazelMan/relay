@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import sys
 from pathlib import Path
@@ -154,7 +155,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     config = load_config(workspace)
     task_id = sanitize_task_id(args.task)
     data, path, err = latest_valid_checkpoint(workspace, config, task_id)
-    previous_checkpoint = data.copy() if data is not None else None
+    previous_checkpoint = deepcopy(data) if data is not None else None
     previous_handoff = handoff_path(workspace, config, task_id)
     previous_text = None
     if previous_handoff.is_file() and not previous_handoff.is_symlink():
@@ -185,8 +186,8 @@ def cmd_handoff(args: argparse.Namespace) -> int:
             "message": f"این handoff قبلاً با نام «{task_id}» و شناسه «{task_id}» ذخیره شده؛ تغییری برای ثبت مجدد وجود ندارد.",
         })
         return 0
-    change_event = record_change_event(workspace, config, task_id, previous_checkpoint, data)
     path = save_checkpoint(workspace, config, data)
+    change_event = record_change_event(workspace, config, task_id, previous_checkpoint, data)
     atomic_write_text(previous_handoff, md)
     if not getattr(args, "no_activate", False):
         _maybe_set_active(workspace, task_id, activate=True)
