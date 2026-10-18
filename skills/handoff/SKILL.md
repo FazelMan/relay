@@ -28,6 +28,11 @@ and resume judgment.
 | **Resume** | `resume` | Reconcile against the workspace, then actually continue the task |
 | **Status** | `status` | Freshness, monitoring capabilities, readiness |
 | **Plan** | `plan` | Continuation plan; checkpoint stays factual |
+| **Dashboard** | `dashboard` | Open this project’s local dashboard in the browser |
+
+## Dashboard
+
+When the user invokes `/handoff dashboard` or asks to open the dashboard, run `python3 -m relay dashboard` from the current project root. Relay reuses a dashboard already serving this exact workspace; otherwise it starts a local read-only server, selects the next available port in the configured range, and opens the browser. Keep the server bound to `127.0.0.1`; never expose project data on a public interface by default. If the command is unavailable, check `python3 -m relay --help` and the installed Relay version instead of inventing a URL.
 
 ## Storage (canonical)
 
