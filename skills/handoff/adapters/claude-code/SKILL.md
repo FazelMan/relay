@@ -37,6 +37,10 @@ portable core + Relay CLI.
 | `/handoff status` [task] | Status |
 | `/handoff plan` [task] | Plan |
 
+## Dashboard behavior
+
+For `/handoff dashboard`, run `python3 -m relay dashboard` from the current project root. The CLI reuses an existing dashboard only when its reported workspace matches this project; otherwise it binds to the next available local port and opens the browser. Keep the server on `127.0.0.1` and do not suggest a global cross-project scan.
+
 ## Resume behavior
 
 For `/handoff resume <task-id>`:
