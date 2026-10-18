@@ -44,7 +44,7 @@ python3 -m relay resume --task my-feature
 ```
 
 See [docs/active-task.md](docs/active-task.md), [docs/handoff-guard.md](docs/handoff-guard.md),
-and [docs/installation.md](docs/installation.md).
+[docs/configuration.md](docs/configuration.md), and [docs/installation.md](docs/installation.md).
 
 Artifacts land in:
 
@@ -60,11 +60,31 @@ plans/handoffs/<task-id>/
 1. Work in **Claude Code**; optional `PreCompact` hook saves a mechanical checkpoint.
 2. Run `/handoff` (or `python3 -m relay handoff --task …`) before context/quota pressure peaks.
 3. Inspect active handoffs with `python3 -m relay handoff list`; mark finished work with `python3 -m relay handoff done <task-id>`. This removes the handoff document from the list while preserving checkpoint/history. Use `python3 -m relay handoff delete <task-id> --yes` when discarding a handoff without marking the task complete.
-3. Open the **same repository** in **Cursor** or **Codex**.
-4. `python3 -m relay resume --task <id>` → read `HANDOFF.md` → verify Git → continue.
-5. Refresh the checkpoint after milestones.
+4. Open the **same repository** in **Cursor** or **Codex**.
+5. `python3 -m relay resume --task <id>` → read `HANDOFF.md` → verify Git → continue.
+6. Refresh the checkpoint after milestones.
 
 Details: [docs/cross-agent.md](docs/cross-agent.md).
+
+
+## Handoff strategy and advice
+
+Relay defaults to a **cost-efficient, high-quality** handoff strategy. Preferences live in your repository's `relay.toml` and persist until you edit them:
+
+```toml
+handoff_mode = "suggest"
+handoff_optimize_for = "value"
+handoff_detail = "standard"
+```
+
+Ask Relay for an evidence-based recommendation:
+
+```bash
+python3 -m relay handoff advise
+python3 -m relay handoff advise my-feature
+```
+
+The command reports its recommendation, reasons, available evidence, and missing signals. It does not call an LLM, switch agents, claim guaranteed savings, or invent context/quota telemetry. See [docs/configuration.md](docs/configuration.md) for all options.
 
 ## Auto Checkpoint vs semantic handoff
 
