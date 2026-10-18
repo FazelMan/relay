@@ -52,7 +52,8 @@ Artifacts land in:
 plans/handoffs/<task-id>/
   checkpoint.json
   HANDOFF.md
-  history/
+  history/             # bounded checkpoint snapshots
+  changes/              # bounded task/Git observation events
 ```
 
 ## Cross-agent example
@@ -63,9 +64,14 @@ plans/handoffs/<task-id>/
 4. `python3 -m relay resume --task <id>` → read `HANDOFF.md` → verify Git → continue.
 5. Refresh the checkpoint after milestones.
 
-Details: [docs/cross-agent.md](docs/cross-agent.md).
+Details: [docs/cross-agent.md](docs/cross-agent.md) and [docs/handoff-lifecycle.md](docs/handoff-lifecycle.md).
 
-Repeated handoff saves with unchanged content report the existing task name and ID\ninstead of creating redundant checkpoint history. `handoff delete` removes only\nthe selected task’s `HANDOFF.md`; it preserves `checkpoint.json`, `history/`,\nthe task directory, and all project files.\n\n## Auto Checkpoint vs semantic handoff
+Repeated handoff saves with unchanged content report the existing task name and ID
+instead of creating redundant checkpoint history. `handoff delete` removes only
+the selected task’s `HANDOFF.md`; it preserves `checkpoint.json`, `history/`,
+the task directory, and all project files.
+
+## Auto Checkpoint vs semantic handoff
 
 | Kind | LLM? | When |
 |------|------|------|
