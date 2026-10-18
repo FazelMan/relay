@@ -110,6 +110,14 @@ def _stable_handoff_text(text: str) -> str:
     return re.sub(r"(?m)^> \*\*Updated:\*\*.*$", "> **Updated:** <timestamp>", text).strip()
 
 
+def _stable_checkpoint_data(data: dict[str, Any]) -> str:
+    """Compare persisted state while ignoring generated identity/timestamp fields."""
+    stable = deepcopy(data)
+    stable.pop("updated_at", None)
+    stable.pop("checkpoint_id", None)
+    return json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def cmd_handoff(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
