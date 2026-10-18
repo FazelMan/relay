@@ -165,8 +165,11 @@ python3 -m relay dashboard
 python3 -m relay dashboard --port 8766
 ```
 
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765). Use the **فا / EN** control to switch between Persian (RTL) and English (LTR). Stop the server with Ctrl+C.
+Relay prints and opens the actual URL automatically. The default port is `8765`; if occupied, Relay tries subsequent ports (up to 32 candidates). If a Relay dashboard is already serving the exact same resolved workspace, the command reuses that URL instead of starting a duplicate server. Separate projects therefore get independent dashboards, and ports are selected dynamically rather than permanently assigned to project names.
 
+Use the **فا / EN** control to switch between Persian (RTL) and English (LTR). Stop the server with Ctrl+C. The dashboard is read-only and binds to `127.0.0.1` by default.
+
+In a supported agent with the Handoff Skill installed, invoke `/handoff dashboard` to open the dashboard for the current project.
 The first version is intentionally local and read-only:
 - Overview of tracked tasks, handoff availability and recent checkpoint activity.
 - Per-task checkpoint details and handoff preview.
