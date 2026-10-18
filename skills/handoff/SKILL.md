@@ -38,6 +38,7 @@ plans/handoffs/<task-id>/
   checkpoint.json    # machine-readable (schema 1.0.0)
   HANDOFF.md         # human continuation guide
   history/           # bounded prior checkpoints
+  changes/           # bounded task/Git observation events
 ```
 
 Legacy flat `plans/handoffs/HANDOFF_*.md` files may still exist; prefer task
@@ -83,14 +84,22 @@ silently `default`). See [docs/active-task.md](../../docs/active-task.md).
 4. `python3 -m relay handoff --task <id> --semantic-json <patch.json> --host <host>`
 5. Tell the user the paths. Recommend a fresh session for independent tasks.
 
-## List and delete workflow\n\n- `python3 -m relay handoff list` lists task-specific handoff documents and their IDs.\n- `python3 -m relay handoff delete <task-id> --yes` deletes only `HANDOFF.md`. It never deletes `checkpoint.json`, `history/`, the task directory, or project files.\n- If a repeated save produces the same handoff content, Relay reports that it was already saved under the same name and task ID and avoids creating a redundant checkpoint-history entry.\n\n## Resume workflow
+## List and delete workflow
+
+- `python3 -m relay handoff list` lists task-specific handoff documents and their IDs.
+- `python3 -m relay handoff delete <task-id> --yes` deletes only `HANDOFF.md`. It never deletes `checkpoint.json`, `history/`, the task directory, or project files.
+- If a repeated save produces the same handoff content, Relay reports that it was already saved under the same name and task ID and avoids creating a redundant checkpoint-history entry.
+
+## Resume workflow
 
 1. `python3 -m relay resume --task <id>` (or status to list tasks).
 2. Read `HANDOFF.md` + `checkpoint.json`.
-3. Verify Git and cited files; note discrepancies from the report.
-4. Continue from the first unfinished next step; do not redo completed work
+3. Verify Git and cited files; inspect workspace deltas and conflict policy in the resume report.
+4. Preserve staged, unstaged, untracked, and newer user work. Never reset/clean/checkout files to match a stale checkpoint.
+5. Confirm deletions with Git status/diff; a missing path or disappeared status entry is not proof of deletion.
+6. Continue from the first unfinished next step; do not redo completed work
    without a verification-based reason.
-5. Update handoff after material progress.
+7. Update handoff after material progress.
 
 ## Status workflow
 
@@ -104,7 +113,7 @@ cross-agent readiness (`HANDOFF.md` present).
 - Context % is used **only** when the host supplies a trustworthy metric (or the
   user passes `--context-pct` to `guard-eval`). Never invent % from transcript size.
 - Quota is separate from context; rate-limit signals do not imply context pressure.
-- See repository docs: `docs/auto-checkpoint.md`, `docs/handoff-guard.md`.
+- See repository docs: `docs/auto-checkpoint.md`, `docs/handoff-guard.md`, and `docs/handoff-lifecycle.md`.
 
 ## Host adapters
 
