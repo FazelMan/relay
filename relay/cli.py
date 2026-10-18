@@ -17,6 +17,7 @@ from .active_task import (
     set_active_task,
 )
 from .config import EXAMPLE_TOML, load_config
+from .dashboard import serve_dashboard
 from .gitinfo import collect_git_state
 from .guard import (
     WarningDeduper,
@@ -687,6 +688,13 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     return 0 if ok else 2
 
 
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Launch the optional, local-only read-only dashboard."""
+    serve_dashboard(args.workspace, host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="relay", description="Relay continuity toolkit")
     p.add_argument("--version", action="version", version=f"relay {__version__}")
@@ -694,6 +702,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_ws(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--workspace", default=".", help="Project root")
+
+    sp = sub.add_parser("dashboard", help="Open the local bilingual dashboard (read-only)")
+    add_ws(sp)
+    sp.add_argument("--host", default="127.0.0.1", help="Bind address; keep localhost unless you understand the security implications")
+    sp.add_argument("--port", type=int, default=8765)
+    sp.set_defaults(func=cmd_dashboard)
 
     sp = sub.add_parser("checkpoint", help="Write mechanical checkpoint (no LLM)")
     add_ws(sp)
