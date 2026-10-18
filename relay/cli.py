@@ -104,10 +104,90 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handoff_advice(workspace: Path, config: Any, task_id: str | None) -> dict[str, Any]:
+    """Explain whether a handoff is worthwhile using only available, explicit signals."""
+    if task_id:
+        tid = sanitize_task_id(task_id)
+        checkpoint, cp_path, err = latest_valid_checkpoint(workspace, config, tid)
+    else:
+        tid = read_active_task(workspace)
+        checkpoint, cp_path, err = latest_valid_checkpoint(workspace, config, tid) if tid else (None, None, "no task selected")
+    git_state = collect_git_state(workspace)
+    handoff_exists = bool(tid and handoff_path(workspace, config, tid).is_file())
+    reasons: list[str] = []
+    cautions: list[str] = []
+    recommendation = "prepare_handoff"
+    if not tid:
+        recommendation = "select_task_first"
+        reasons.append("No active task is selected; set one to make the advice task-specific.")
+    elif checkpoint is None:
+        recommendation = "create_checkpoint_first"
+        reasons.append("No valid checkpoint was found; create or repair the checkpoint before handing off.")
+        if err:
+            cautions.append(str(err))
+    else:
+        task = checkpoint.get("task") or {}
+        if task.get("status") == "complete":
+            recommendation = "no_handoff_needed"
+            reasons.append("The checkpoint marks this task complete.")
+        else:
+            repo = checkpoint.get("repository") or {}
+            changed = repo.get("changed_paths") or []
+            untracked = repo.get("untracked_paths") or []
+            if changed or untracked:
+                reasons.append("Workspace changes are recorded; ensure the handoff names important files and test status.")
+            if handoff_exists:
+                reasons.append("A HANDOFF.md already exists; refresh it if task state has changed.")
+                recommendation = "refresh_handoff"
+            else:
+                reasons.append("A handoff document is not present.")
+            context = checkpoint.get("context") or {}
+            if context.get("reliability") == "valid" and isinstance(context.get("utilization"), (int, float)):
+                pct = round(float(context["utilization"]) * 100)
+                if pct >= 90:
+                    reasons.append(f"Reported context utilization is {pct}%; prepare a handoff soon.")
+                    recommendation = "prepare_handoff"
+                elif pct >= 80:
+                    reasons.append(f"Reported context utilization is {pct}%; a handoff may be timely.")
+                else:
+                    reasons.append(f"Reported context utilization is {pct}%; no urgent context-based need is indicated.")
+            else:
+                cautions.append("Live context utilization is unavailable; no percentage or urgency was inferred.")
+            quota = checkpoint.get("quota") or {}
+            if quota.get("reliability") == "rate_limited" or quota.get("status") in ("rate_limited", "exhausted", "critical"):
+                reasons.append("A rate-limit or critical quota signal is recorded; prepare a handoff.")
+                recommendation = "prepare_handoff"
+            elif quota.get("reliability") not in ("valid", "rate_limited"):
+                cautions.append("Reliable provider quota data is unavailable; cost or quota savings cannot be guaranteed.")
+    return {
+        "ok": True,
+        "task_id": tid,
+        "recommendation": recommendation,
+        "strategy": {
+            "mode": config.handoff_mode,
+            "optimize_for": config.handoff_optimize_for,
+            "detail": config.handoff_detail,
+        },
+        "evidence": {"checkpoint": str(cp_path) if cp_path else None, "handoff_exists": handoff_exists, "workspace": git_state},
+        "reasons": reasons,
+        "cautions": cautions,
+        "next_step": {
+            "select_task_first": "python3 -m relay task set <task-id>",
+            "create_checkpoint_first": "python3 -m relay checkpoint --task <task-id> --write-handoff",
+            "prepare_handoff": "python3 -m relay handoff --task <task-id>",
+            "refresh_handoff": "python3 -m relay handoff --task <task-id>",
+            "no_handoff_needed": "No action required; use handoff list to confirm it is absent.",
+        }.get(recommendation, "Review the reasons and choose the next step."),
+    }
+
+
 def cmd_handoff(args: argparse.Namespace) -> int:
     workspace = resolve_workspace(args.workspace)
     config = load_config(workspace)
     action = getattr(args, "handoff_action", None)
+    if action == "advise":
+        _print_json(_handoff_advice(workspace, config, getattr(args, "handoff_task_id", None) or getattr(args, "task", None)))
+        return 0
     if action == "list":
         entries = []
         for tid in list_tasks(workspace, config):
@@ -628,7 +708,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("handoff", help="Create, list, delete, or complete a handoff")
     add_ws(sp)
-    sp.add_argument("handoff_action", nargs="?", choices=["list", "delete", "done"], default=None)
+    sp.add_argument("handoff_action", nargs="?", choices=["list", "delete", "done", "advise"], default=None)
     sp.add_argument("handoff_task_id", nargs="?", default=None)
     sp.add_argument("--task", default=None, help="Task id (required when refreshing; alternative for delete/done)")
     sp.add_argument("--host", default=None)
