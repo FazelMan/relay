@@ -7,7 +7,7 @@ import json
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 MANIFEST_NAME = ".relay-install-manifest.json"
@@ -50,6 +50,30 @@ def _rel(path: Path, root: Path) -> str:
     return str(path.relative_to(root)).replace("\\", "/")
 
 
+def _safe_relative_path(value: Any) -> str | None:
+    """Return a normalized manifest path, rejecting absolute/traversal paths."""
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+        return None
+    candidate = PurePosixPath(value)
+    if candidate.is_absolute() or any(part in ("", ".", "..") for part in candidate.parts):
+        return None
+    normalized = candidate.as_posix()
+    if normalized in ("", "."):
+        return None
+    return normalized
+
+
+def _has_symlink_parent(dest: Path, rel: str) -> bool:
+    """Do not follow symlinked directories while writing/removing owned paths."""
+    current = dest
+    parts = PurePosixPath(rel).parts
+    for part in parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
 def owned_file_map(skill_root: Path, adapter_skill: Path, *, include_cursor_rule: bool) -> dict[str, Path]:
     """Map relative install paths → source files owned by Relay."""
     mapping: dict[str, Path] = {
@@ -78,7 +102,8 @@ def owned_file_map(skill_root: Path, adapter_skill: Path, *, include_cursor_rule
 
 def load_manifest(dest: Path) -> dict[str, Any] | None:
     path = dest / MANIFEST_NAME
-    if not path.is_file():
+    # Never follow a user-created symlink for the ownership manifest.
+    if path.is_symlink() or not path.is_file():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -88,6 +113,9 @@ def load_manifest(dest: Path) -> dict[str, Any] | None:
 
 
 def save_manifest(dest: Path, files: list[str], meta: dict[str, Any]) -> None:
+    path = dest / MANIFEST_NAME
+    if path.is_symlink():
+        raise OSError(f"refusing to write through symlinked manifest: {path}")
     payload = {
         "version": 1,
         "installed_at": datetime.now(timezone.utc)
@@ -97,7 +125,7 @@ def save_manifest(dest: Path, files: list[str], meta: dict[str, Any]) -> None:
         "files": sorted(set(files) | {MANIFEST_NAME}),
         **meta,
     }
-    (dest / MANIFEST_NAME).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def install_adapter(
@@ -109,6 +137,9 @@ def install_adapter(
     include_cursor_rule: bool = False,
 ) -> InstallResult:
     result = InstallResult(dest=dest)
+    if dest.is_symlink():
+        result.errors.append(f"refusing symlinked install destination: {dest}")
+        return result
     dest.mkdir(parents=True, exist_ok=True)
     mapping = owned_file_map(
         skill_root, adapter_skill, include_cursor_rule=include_cursor_rule
@@ -117,6 +148,8 @@ def install_adapter(
     owned_rels: list[str] = []
 
     def ensure_backup(rel: str, existing: Path) -> None:
+        if existing.is_symlink():
+            raise OSError(f"refusing to back up symlink destination: {existing}")
         backup_root.mkdir(parents=True, exist_ok=True)
         target = backup_root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -134,77 +167,104 @@ def install_adapter(
     }
 
     for rel, src in mapping.items():
-        owned_rels.append(rel)
-        out = dest / rel
+        safe_rel = _safe_relative_path(rel)
+        if safe_rel is None:
+            result.errors.append(f"unsafe install path: {rel!r}")
+            continue
+        owned_rels.append(safe_rel)
+        out = dest / safe_rel
+        if _has_symlink_parent(dest, safe_rel) or out.is_symlink():
+            result.errors.append(f"refusing to write through symlink path: {safe_rel}")
+            continue
         out.parent.mkdir(parents=True, exist_ok=True)
-        if rel in generated:
-            content = generated[rel]
+        if safe_rel in generated:
+            content = generated[safe_rel]
             if out.is_file():
-                if out.read_text(encoding="utf-8") == content:
-                    result.skipped_same.append(rel)
+                try:
+                    if out.read_text(encoding="utf-8") == content:
+                        result.skipped_same.append(safe_rel)
+                        continue
+                except (OSError, UnicodeError) as exc:
+                    result.errors.append(f"{safe_rel}: cannot inspect existing file: {exc}")
                     continue
-                # Overwrite generated Relay files; backup if previously different and not ours
                 manifest = load_manifest(dest)
-                previously_owned = bool(manifest and rel in (manifest.get("files") or []))
+                previously_owned = bool(manifest and safe_rel in (manifest.get("files") or []))
                 if not previously_owned:
-                    ensure_backup(rel, out)
-            out.write_text(content, encoding="utf-8")
-            if rel == "bin/relay-run":
-                out.chmod(out.stat().st_mode | 0o111)
-            result.written.append(rel)
+                    try:
+                        ensure_backup(safe_rel, out)
+                    except OSError as exc:
+                        result.errors.append(f"{safe_rel}: backup failed: {exc}")
+                        continue
+            try:
+                out.write_text(content, encoding="utf-8")
+                if safe_rel == "bin/relay-run":
+                    out.chmod(out.stat().st_mode | 0o111)
+                result.written.append(safe_rel)
+            except OSError as exc:
+                result.errors.append(f"{safe_rel}: write failed: {exc}")
             continue
 
         if not src.is_file():
             result.errors.append(f"missing source: {src}")
             continue
         if out.is_file():
-            if _sha256(out) == _sha256(src):
-                result.skipped_same.append(rel)
-                continue
-            manifest = load_manifest(dest)
-            previously_owned = bool(manifest and rel in (manifest.get("files") or []))
-            if previously_owned:
-                # Safe replace of Relay-owned content
+            try:
+                if _sha256(out) == _sha256(src):
+                    result.skipped_same.append(safe_rel)
+                    continue
+                manifest = load_manifest(dest)
+                previously_owned = bool(manifest and safe_rel in (manifest.get("files") or []))
+                if not previously_owned:
+                    ensure_backup(safe_rel, out)
                 shutil.copy2(src, out)
-                result.written.append(rel)
-            else:
-                ensure_backup(rel, out)
-                shutil.copy2(src, out)
-                result.written.append(rel)
+                result.written.append(safe_rel)
+            except OSError as exc:
+                result.errors.append(f"{safe_rel}: copy failed: {exc}")
             continue
-        shutil.copy2(src, out)
-        if rel == "bin/relay-run":
-            out.chmod(out.stat().st_mode | 0o111)
-        result.written.append(rel)
+        try:
+            shutil.copy2(src, out)
+            result.written.append(safe_rel)
+        except OSError as exc:
+            result.errors.append(f"{safe_rel}: copy failed: {exc}")
 
     # Preserve unrelated custom files
     manifest_prev = load_manifest(dest)
     prev_owned = set(manifest_prev.get("files") or []) if manifest_prev else set()
     for path in dest.rglob("*"):
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             continue
         rel = _rel(path, dest)
-        if rel.startswith(".relay-backup-"):
-            continue
-        if rel == MANIFEST_NAME:
+        if rel.startswith(".relay-backup-") or rel == MANIFEST_NAME:
             continue
         if rel not in owned_rels and rel not in prev_owned:
             result.preserved.append(rel)
 
-    save_manifest(
-        dest,
-        owned_rels,
-        {
-            "repo_root": str(repo_root.resolve()),
-            "adapter": str(adapter_skill),
-        },
-    )
-    result.written.append(MANIFEST_NAME)
+    try:
+        save_manifest(
+            dest,
+            owned_rels,
+            {
+                "repo_root": str(repo_root.resolve()),
+                "adapter": str(adapter_skill),
+            },
+        )
+        result.written.append(MANIFEST_NAME)
+    except OSError as exc:
+        result.errors.append(f"manifest write failed: {exc}")
     return result
 
 
 def uninstall_adapter(dest: Path) -> dict[str, Any]:
-    """Remove only Relay-owned files listed in the install manifest."""
+    """Remove only Relay-owned files listed in a validated install manifest."""
+    manifest_path = dest / MANIFEST_NAME
+    if manifest_path.is_symlink():
+        return {
+            "ok": False,
+            "dest": str(dest),
+            "error": "manifest is a symlink — refusing to follow it",
+            "removed": [],
+            "skipped": [],
+        }
     manifest = load_manifest(dest)
     removed: list[str] = []
     skipped: list[str] = []
@@ -213,43 +273,68 @@ def uninstall_adapter(dest: Path) -> dict[str, Any]:
         return {
             "ok": False,
             "dest": str(dest),
-            "error": "no .relay-install-manifest.json — refusing to delete directory",
+            "error": "no valid .relay-install-manifest.json — refusing to delete directory",
             "removed": [],
             "skipped": [],
         }
-    for rel in list(manifest.get("files") or []):
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        return {
+            "ok": False,
+            "dest": str(dest),
+            "error": "invalid manifest files list — refusing to delete files",
+            "removed": [],
+            "skipped": [],
+        }
+
+    for entry in files:
+        rel = _safe_relative_path(entry)
+        if rel is None:
+            errors.append(f"unsafe manifest path rejected: {entry!r}")
+            continue
         path = dest / rel
-        if not path.exists():
+        if _has_symlink_parent(dest, rel):
+            errors.append(f"symlink parent rejected: {rel}")
+            continue
+        if not path.exists() and not path.is_symlink():
             skipped.append(rel)
             continue
         try:
-            if path.is_file():
+            # Unlink a listed symlink itself; never follow it to its target.
+            if path.is_symlink() or path.is_file():
                 path.unlink()
-            removed.append(rel)
+                removed.append(rel)
+            elif path.is_dir():
+                skipped.append(f"{rel} (directory preserved)")
+            else:
+                skipped.append(rel)
         except OSError as exc:
             errors.append(f"{rel}: {exc}")
-    # Remove empty directories we created (references, templates, bin)
+
+    # Remove only empty directories Relay commonly creates; never recurse-delete.
     for sub in ("references", "templates", "bin"):
         d = dest / sub
+        if d.is_symlink():
+            continue
         if d.is_dir():
+            for p in sorted(d.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                if p.is_symlink() or not p.is_dir():
+                    continue
+                try:
+                    p.rmdir()
+                except OSError:
+                    pass
             try:
-                # remove empty tree bottom-up
-                for p in sorted(d.rglob("*"), reverse=True):
-                    if p.is_file():
-                        continue
-                    try:
-                        p.rmdir()
-                    except OSError:
-                        pass
                 d.rmdir()
             except OSError:
                 pass
-    # Remove dest if empty
     try:
-        if dest.is_dir() and not any(dest.iterdir()):
+        if dest.is_dir() and not dest.is_symlink() and not any(dest.iterdir()):
             dest.rmdir()
     except OSError:
         pass
+
     return {
         "ok": not errors,
         "dest": str(dest),
@@ -259,7 +344,7 @@ def uninstall_adapter(dest: Path) -> dict[str, Any]:
         "preserved_remaining": [
             str(p.relative_to(dest))
             for p in dest.rglob("*")
-            if p.is_file() and dest.exists()
+            if (p.is_file() or p.is_symlink()) and dest.exists()
         ]
         if dest.exists()
         else [],
