@@ -17,7 +17,7 @@ from .active_task import (
     set_active_task,
 )
 from .config import EXAMPLE_TOML, load_config
-from .dashboard import serve_dashboard
+from .dashboard import choose_workspace_dialog, serve_dashboard
 from .gitinfo import collect_git_state
 from .guard import (
     WarningDeduper,
@@ -691,7 +691,22 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Launch the optional, local-only read-only dashboard."""
-    serve_dashboard(args.workspace, host=args.host, port=args.port)
+    workspace = args.workspace
+    if args.choose_workspace:
+        selected = choose_workspace_dialog(workspace or ".")
+        if selected:
+            workspace = selected
+        else:
+            # Native folder dialogs are not available in every Python build.
+            try:
+                typed = input("Project folder path (leave blank to cancel): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                typed = ""
+            if not typed:
+                print("Dashboard launch cancelled; no workspace was changed.")
+                return 1
+            workspace = typed
+    serve_dashboard(workspace or ".", host=args.host, port=args.port)
     return 0
 
 
@@ -704,7 +719,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--workspace", default=".", help="Project root")
 
     sp = sub.add_parser("dashboard", help="Open the local bilingual dashboard (read-only)")
-    add_ws(sp)
+    sp.add_argument("--workspace", default=None, help="Project root (defaults to the current directory)")
+    sp.add_argument("--choose-workspace", action="store_true", help="Open a native folder chooser before starting the dashboard")
     sp.add_argument("--host", default="127.0.0.1", help="Bind address; keep localhost unless you understand the security implications")
     sp.add_argument("--port", type=int, default=8765)
     sp.set_defaults(func=cmd_dashboard)
