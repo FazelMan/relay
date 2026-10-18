@@ -65,7 +65,7 @@ plans/handoffs/<task-id>/
 
 Details: [docs/cross-agent.md](docs/cross-agent.md).
 
-## Auto Checkpoint vs semantic handoff
+Repeated handoff saves with unchanged content report the existing task name and ID\ninstead of creating redundant checkpoint history. `handoff delete` removes only\nthe selected task’s `HANDOFF.md`; it preserves `checkpoint.json`, `history/`,\nthe task directory, and all project files.\n\n## Auto Checkpoint vs semantic handoff
 
 | Kind | LLM? | When |
 |------|------|------|
