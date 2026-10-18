@@ -120,7 +120,7 @@ def build_continuation_instruction(report: "ResumeReport") -> str:
         lines.append("6. Resolve discrepancies before editing:")
         for d in report.discrepancies:
             lines.append(f"   - {d}")
-        step = 5
+        step = 7
     else:
         lines.append("6. No major discrepancies reported; still spot-check cited paths.")
         step = 7
