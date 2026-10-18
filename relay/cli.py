@@ -42,6 +42,8 @@ from .schema import empty_checkpoint, merge_checkpoint, validate_checkpoint
 from .secrets import scrub
 from .storage import (
     StorageError,
+    ensure_within,
+    storage_root,
     atomic_write_text,
     checkpoint_path,
     create_mechanical_checkpoint,
@@ -145,16 +147,17 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         if not getattr(args, "yes", False):
             _print_json({"ok": False, "error": "confirmation required; pass --yes to delete only HANDOFF.md"})
             return 2
-        if hp.is_symlink():
-            _print_json({"ok": False, "error": "refusing to delete a symlink"})
+        if hp.is_symlink() or hp.parent.is_symlink():
+            _print_json({"ok": False, "error": "refusing to delete through a symlink"})
             return 2
+        ensure_within(storage_root(workspace, config), hp)
         if not hp.is_file():
             _print_json({"ok": False, "error": "handoff document not found", "task_id": task_id, "path": str(hp)})
             return 1
         hp.unlink()
         _print_json({
             "ok": True, "deleted": str(hp), "task_id": task_id,
-            "preserved": [str(checkpoint_path(workspace, config, task_id)), str(hp.parent / "history"), "all project files"],
+            "preserved": [str(checkpoint_path(workspace, config, task_id)), str(hp.parent / "history"), str(hp.parent / "changes"), "all project files"],
             "message": "Only HANDOFF.md was deleted; checkpoint, checkpoint history, task directory, and project work were preserved.",
         })
         return 0
