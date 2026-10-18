@@ -65,6 +65,7 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
                         "changed_paths": repo.get("changed_paths") or [],
                         "untracked_paths": repo.get("untracked_paths") or [],
                         "test_status": tests.get("status") if isinstance(tests, dict) else None,
+                        "test_count": len((task.get("tests") or {}).get("executed") or []) if isinstance(task.get("tests"), dict) else 0,
                         "history_count": len(list(histories.glob("checkpoint-*.json"))) if histories.is_dir() else 0,
                         "next_steps": task.get("next_steps") or cp.get("next_steps") or [],
                         "decisions": task.get("decisions") or cp.get("decisions") or [],
