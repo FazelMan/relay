@@ -179,7 +179,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
     if args.objective:
         data.setdefault("task", {})["objective"] = args.objective
     md = render_handoff(data)
-    if previous_text is not None and _stable_handoff_text(previous_text) == _stable_handoff_text(md):
+    if (previous_text is not None and _stable_handoff_text(previous_text) == _stable_handoff_text(md)\n            and previous_checkpoint is not None\n            and _stable_checkpoint_data(previous_checkpoint) == _stable_checkpoint_data(data)):
         _print_json({
             "ok": True, "unchanged": True, "task_id": task_id,
             "name": task_id, "handoff": str(previous_handoff),
