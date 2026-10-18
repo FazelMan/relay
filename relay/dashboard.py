@@ -7,6 +7,8 @@ import urllib.request
 import webbrowser
 import mimetypes
 import shutil
+import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,27 +21,32 @@ from .active_task import read_active_task, clear_active_task
 
 
 def choose_workspace_dialog(initial_dir: str = ".") -> str | None:
-    """Open a native folder chooser; return None when cancelled/unavailable."""
+    """Open the operating system native folder picker."""
+    initial = str(Path(initial_dir).expanduser().resolve())
     try:
+        if sys.platform == "darwin":
+            script = 'POSIX path of (choose folder with prompt "Choose the project folder for Relay Dashboard" default location POSIX file ' + json.dumps(initial) + ')'
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=300, check=False)
+            if result.returncode != 0:
+                return None
+            selected = result.stdout.strip()
+            return str(Path(selected).resolve()) if selected else None
+        if sys.platform == "win32":
+            script = 'Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = "Choose the project folder for Relay Dashboard"; $d.SelectedPath = ' + "'" + initial.replace("'", "''") + "'" + '; if ($d.ShowDialog() -eq "OK") { Write-Output $d.SelectedPath }'
+            result = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", script], capture_output=True, text=True, timeout=300, check=False)
+            selected = result.stdout.strip()
+            return str(Path(selected).resolve()) if result.returncode == 0 and selected else None
         import tkinter as tk
         from tkinter import filedialog
-
         root = tk.Tk()
         root.withdraw()
         try:
-            root.attributes("-topmost", True)
-            selected = filedialog.askdirectory(
-                title="Choose the project folder for Relay Dashboard",
-                initialdir=str(Path(initial_dir).expanduser().resolve()),
-                mustexist=True,
-            )
+            selected = filedialog.askdirectory(title="Choose the project folder for Relay Dashboard", initialdir=initial, mustexist=True)
         finally:
             root.destroy()
         return str(Path(selected).expanduser().resolve()) if selected else None
     except Exception:
-        # Tk may be unavailable in headless/minimal Python installations.
         return None
-
 
 def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = True) -> None:
     workspace = resolve_workspace(workspace_arg)
