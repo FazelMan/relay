@@ -414,7 +414,7 @@ def cmd_guard_eval(args: argparse.Namespace) -> int:
             and not resolution.is_mechanical_fallback
         ):
             atomic_write_text(
-                handoff_path(workspace, config, task_id), render_handoff(cp)
+                handoff_path(workspace, config, task_id), render_handoff(cp, config.handoff_detail)
             )
 
     _print_json(
