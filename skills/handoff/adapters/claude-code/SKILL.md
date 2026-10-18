@@ -3,13 +3,13 @@ name: handoff
 description: >
   Save, resume, or check Relay task handoffs for session continuity. Use when
   the user runs /handoff, /handoff resume, /handoff status, or /handoff plan.
-argument-hint: "[save|resume|status|plan] [task-id]"
+argument-hint: "[save|resume|status|plan|list|delete] [task-id]"
 disable-model-invocation: true
 license: MIT
 metadata:
   author: FazelMan/relay
   host: claude-code
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Handoff — Claude Code adapter
@@ -36,8 +36,10 @@ portable core + Relay CLI.
 | `/handoff resume` [task] | Resume |
 | `/handoff status` [task] | Status |
 | `/handoff plan` [task] | Plan |
+| `/handoff list` | List saved handoff documents and task IDs |
+| `/handoff delete <task-id>` | Delete only the handoff Markdown document |
 
-## Load order
+For `/handoff delete <task-id>`, explain that only `HANDOFF.md` is removed;\n`checkpoint.json`, `history/`, task directories, and project files are preserved.\nThe explicit delete invocation authorizes this documentation-only deletion.\nIf saving identical content again, report the existing handoff name and task ID\ninstead of implying that a new handoff was created.\n\n## Load order
 
 1. [PORTABLE.md](PORTABLE.md) (installed) or [../../SKILL.md](../../SKILL.md)
 2. Ensure `PYTHONPATH` includes the Relay repo (or installed package) so
