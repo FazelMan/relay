@@ -34,7 +34,7 @@ class Config:
     context_capacity_tokens: int | None = None  # optional host-configured capacity
     log_level: str = "info"
     handoff_mode: str = "suggest"  # manual | suggest | prepare
-    handoff_optimize_for: str = "balanced"  # cost | time | quality | balanced
+    handoff_optimize_for: str = "value"  # value | cost | time | quality | balanced
     handoff_detail: str = "standard"  # compact | standard | full
 
     def to_dict(self) -> dict[str, Any]:
@@ -75,8 +75,8 @@ def config_from_mapping(data: dict[str, Any]) -> Config:
     if handoff_mode not in {"manual", "suggest", "prepare"}:
         raise ValueError("handoff_mode must be manual, suggest, or prepare")
     optimize_for = str(data.get("handoff_optimize_for", DEFAULTS.handoff_optimize_for))
-    if optimize_for not in {"cost", "time", "quality", "balanced"}:
-        raise ValueError("handoff_optimize_for must be cost, time, quality, or balanced")
+    if optimize_for not in {"value", "cost", "time", "quality", "balanced"}:
+        raise ValueError("handoff_optimize_for must be value, cost, time, quality, or balanced")
     handoff_detail = str(data.get("handoff_detail", DEFAULTS.handoff_detail))
     if handoff_detail not in {"compact", "standard", "full"}:
         raise ValueError("handoff_detail must be compact, standard, or full")
@@ -149,7 +149,7 @@ auto_handoff_on_critical = true
 mechanical_on_precompact = true
 mechanical_on_stop = false
 handoff_mode = "suggest" # manual | suggest | prepare
-handoff_optimize_for = "balanced" # cost | time | quality | balanced
+handoff_optimize_for = "value" # value | cost | time | quality | balanced
 handoff_detail = "standard" # compact | standard | full
 # Optional: used only when a host reports absolute context_tokens.
 # context_capacity_tokens = 200000
