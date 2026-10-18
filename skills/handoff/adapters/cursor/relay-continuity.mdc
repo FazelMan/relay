@@ -1,0 +1,14 @@
+---
+description: Relay continuity — prefer checkpoints over chat memory when resuming work
+alwaysApply: false
+---
+
+# Relay continuity
+
+When continuing unfinished work in this repository:
+
+1. Run `python3 -m relay status` and, if a task is known, `python3 -m relay resume --task <id>`.
+2. Read `plans/handoffs/<task-id>/HANDOFF.md` and `checkpoint.json` if present.
+3. Verify Git status against the recorded branch/HEAD before editing.
+4. Do not invent test results or claim prior context was fully transferred.
+5. Update the checkpoint after meaningful progress: `python3 -m relay handoff --task <id>`.

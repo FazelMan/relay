@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0.0",
+  "checkpoint_id": "00000000-0000-4000-8000-000000000001",
+  "task_id": "add-rate-limiting",
+  "updated_at": "2026-03-18T12:00:00Z",
+  "task": {
+    "objective": "Add per-IP rate limiting to public HTTP API routes",
+    "phase": "implementation",
+    "status": "in_progress",
+    "completed": ["Drafted in-memory limiter module"],
+    "in_progress": ["Wire middleware into app router"],
+    "decisions": [
+      {
+        "decision": "In-memory store for v1",
+        "rationale": "User constraint: no Redis yet",
+        "evidence": "user-stated"
+      }
+    ],
+    "next_steps": [
+      "Confirm default 100/min/IP",
+      "Wire middleware for public routes",
+      "Add unit tests and record results"
+    ],
+    "blockers": [],
+    "unresolved": ["Default limit value"],
+    "relevant_paths": ["src/middleware/rateLimit.ts", "src/app.ts"],
+    "files": {
+      "created": ["src/middleware/rateLimit.ts"],
+      "modified": [],
+      "deleted": []
+    },
+    "tests": {
+      "executed": [],
+      "not_executed": [
+        {"name": "unit tests for limiter", "reason": "not run"},
+        {"name": "typecheck", "reason": "not run"}
+      ]
+    },
+    "project_instructions": ["README.md"]
+  },
+  "repository": {
+    "root": "/path/to/project",
+    "identity": "example",
+    "branch": "feature/rate-limit",
+    "head": "abc123",
+    "working_tree": "dirty",
+    "changed_paths": ["src/middleware/rateLimit.ts"],
+    "staged_paths": [],
+    "unstaged_paths": [],
+    "untracked_paths": ["src/middleware/rateLimit.ts"],
+    "git_available": true
+  },
+  "context": {
+    "utilization": null,
+    "capacity": null,
+    "remaining": null,
+    "observed_at": null,
+    "source": null,
+    "reliability": "unsupported"
+  },
+  "quota": {
+    "status": "unsupported",
+    "observed_at": null,
+    "source": null,
+    "reliability": "unsupported",
+    "detail": null
+  },
+  "risk": {
+    "state": "healthy",
+    "context_state": "healthy",
+    "quota_state": "healthy",
+    "reason": ""
+  },
+  "provenance": {
+    "kind": "semantic",
+    "host": "example",
+    "tool": "relay",
+    "notes": "Illustrative fixture — not a live run"
+  },
+  "integrity": {
+    "valid": true,
+    "errors": []
+  }
+}

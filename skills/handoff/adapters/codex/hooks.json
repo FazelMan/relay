@@ -1,0 +1,30 @@
+{
+  "description": "Relay mechanical checkpoints for Codex. No LLM calls. Requires hook trust review via /hooks.",
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m relay hook --host codex --event PreCompact --task default",
+            "statusMessage": "Relay mechanical checkpoint",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m relay hook --host codex --event SessionStart --task default",
+            "statusMessage": "Relay resume hint",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

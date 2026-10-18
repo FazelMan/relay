@@ -1,0 +1,31 @@
+{
+  "description": "Relay mechanical checkpoints for Claude Code. No LLM calls. Review before trusting.",
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m relay hook --host claude-code --event PreCompact --task default",
+            "statusMessage": "Relay mechanical checkpoint",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|resume|startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m relay hook --host claude-code --event SessionStart --task default",
+            "statusMessage": "Relay resume hint",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
