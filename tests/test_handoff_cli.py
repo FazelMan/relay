@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from relay.cli import _stable_handoff_text, build_parser
+from relay.cli import _stable_checkpoint_data, _stable_handoff_text, build_parser
 
 
 class HandoffCliTests(unittest.TestCase):
@@ -33,6 +33,16 @@ class HandoffCliTests(unittest.TestCase):
         self.assertEqual(deleted.handoff_command, "delete")
         self.assertEqual(deleted.task_id, "abc")
         self.assertTrue(deleted.yes)
+
+    def test_generated_checkpoint_identity_does_not_count_as_state_change(self) -> None:
+        first = {"checkpoint_id": "one", "updated_at": "t1", "task": {"status": "in_progress"}}
+        second = {"checkpoint_id": "two", "updated_at": "t2", "task": {"status": "in_progress"}}
+        self.assertEqual(_stable_checkpoint_data(first), _stable_checkpoint_data(second))
+
+    def test_repository_state_change_counts_as_real_change(self) -> None:
+        first = {"task": {"status": "in_progress"}, "repository": {"changed_paths": ["a.py"]}}
+        second = {"task": {"status": "in_progress"}, "repository": {"changed_paths": ["b.py"]}}
+        self.assertNotEqual(_stable_checkpoint_data(first), _stable_checkpoint_data(second))
 
 
 if __name__ == "__main__":
