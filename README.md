@@ -161,11 +161,15 @@ Start it from the project root:
 
 ```bash
 python3 -m relay dashboard
+# Open a native folder-picker wizard, then launch that project's dashboard
+python3 -m relay dashboard --choose-workspace
+# Or specify the project folder directly (quote paths containing spaces)
+python3 -m relay dashboard --workspace "$HOME/Documents/my-project"
 # Optional: choose another local port
 python3 -m relay dashboard --port 8766
 ```
 
-Relay prints and opens the actual URL automatically. The default port is `8765`; if occupied, Relay tries subsequent ports (up to 32 candidates). If a Relay dashboard is already serving the exact same resolved workspace, the command reuses that URL instead of starting a duplicate server. Separate projects therefore get independent dashboards, and ports are selected dynamically rather than permanently assigned to project names.
+Relay prints and opens the actual URL automatically. `--choose-workspace` opens the operating system's native folder chooser; if that dialog is unavailable, the CLI asks for the path in the terminal. `--workspace` selects a folder directly, while the default remains the current directory so `/handoff dashboard` continues to open the current project. The default port is `8765`; if occupied, Relay tries subsequent ports (up to 32 candidates). If a Relay dashboard is already serving the exact same resolved workspace, the command reuses that URL instead of starting a duplicate server. Separate projects therefore get independent dashboards, and ports are selected dynamically rather than permanently assigned to project names.
 
 Use the **فا / EN** control to switch between Persian (RTL) and English (LTR). Stop the server with Ctrl+C. The dashboard is read-only and binds to `127.0.0.1` by default.
 
