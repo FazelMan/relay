@@ -108,9 +108,9 @@ def record_change_event(
     digest = hashlib.sha256(_canonical(event).encode("utf-8")).hexdigest()[:16]
     event["event_id"] = digest
     folder = task_dir(workspace, config, task_id) / "changes"
-    folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"change-{event['observed_at'].replace(':', '').replace('-', '')}-{digest}.json"
     ensure_within(storage_root(workspace, config), path)
+    folder.mkdir(parents=True, exist_ok=True)
     if path.exists():
         return path
     tmp = path.with_suffix(".tmp")
