@@ -96,7 +96,7 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
         _maybe_set_active(workspace, task_id, activate=True)
     result = {"ok": True, "path": str(path), "task_id": task_id, "trigger": args.trigger}
     if args.write_handoff:
-        md = render_handoff(cp)
+        md = render_handoff(cp, config.handoff_detail)
         hp = handoff_path(workspace, config, task_id)
         atomic_write_text(hp, md)
         result["handoff"] = str(hp)
