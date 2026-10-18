@@ -74,7 +74,9 @@ def serve_dashboard(workspace_arg: str = ".", host: str = "127.0.0.1", port: int
                     if handoff.is_file() and not handoff.is_symlink():
                         events.append({"task_id": tid, "time": handoff.stat().st_mtime, "type": "handoff", "title": "Handoff available", "detail": handoff.name})
                 events.sort(key=lambda x: str(x.get("time") or ""), reverse=True)
-                self._json({"ok": True, "workspace": str(workspace), "version": "1.0", "git": collect_git_state(workspace), "tasks": tasks, "events": events[:40]})
+                memory_path = workspace / "PROJECT_MEMORY.md"
+                memory_text = memory_path.read_text(encoding="utf-8") if memory_path.is_file() and not memory_path.is_symlink() else ""
+                self._json({"ok": True, "workspace": str(workspace), "version": "1.0", "git": collect_git_state(workspace), "tasks": tasks, "events": events[:40], "project_memory": memory_text, "project_memory_path": str(memory_path)})
                 return
             if parsed.path == "/api/task":
                 from urllib.parse import parse_qs
