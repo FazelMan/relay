@@ -52,7 +52,7 @@ def _test_rows(tests: dict[str, Any]) -> str:
     return "\n".join(rows)
 
 
-def render_handoff(checkpoint: dict[str, Any]) -> str:
+def render_handoff(checkpoint: dict[str, Any], detail: str = "standard") -> str:
     task = checkpoint.get("task") or {}
     repo = checkpoint.get("repository") or {}
     risk = checkpoint.get("risk") or {}
@@ -78,7 +78,7 @@ def render_handoff(checkpoint: dict[str, Any]) -> str:
         f"{i}. {step}" for i, step in enumerate(next_steps, 1)
     ) or f"1. {next_action}"
 
-    return f"""# Handoff: {objective}
+    document = f"""# Handoff: {objective}
 
 > **Status:** {status}  
 > **Updated:** {updated}  
@@ -157,3 +157,22 @@ Unresolved: {_bullets(task.get("unresolved") or [], empty="- (none)")}
 
 This handoff is a continuation guide, not a transfer of the previous agent's full conversation or hidden reasoning.
 """
+    if detail not in {"compact", "standard", "full"}:
+        raise ValueError("detail must be compact, standard, or full")
+    if detail != "compact":
+        return document
+    keep = {
+        "# Handoff:", "## 1. Task objective", "## 2. Current status",
+        "## 4. Unfinished", "## 6. Relevant files and changes",
+        "## 7. Tests and results", "## 8. Blockers and risks",
+        "## 9. Next recommended action", "### Ordered next steps",
+        "## 10. Validate workspace before editing",
+    }
+    selected: list[str] = []
+    include = False
+    for line in document.splitlines():
+        if line.startswith("# ") or line.startswith("## ") or line.startswith("### "):
+            include = line.startswith("# Handoff:") or line in keep
+        if include:
+            selected.append(line)
+    return "\n".join(selected).strip() + "\n"
