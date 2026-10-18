@@ -137,7 +137,7 @@ def cmd_handoff(args: argparse.Namespace) -> int:
             if data is None:
                 _print_json({"ok": False, "error": err or "valid checkpoint not found", "task_id": task_id})
                 return 2
-            data.setdefault("task", {})["status"] = "completed"
+            data.setdefault("task", {})["status"] = "complete"
             from datetime import datetime, timezone
             data.setdefault("provenance", {})["handoff_done_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
             save_checkpoint(workspace, config, data)
