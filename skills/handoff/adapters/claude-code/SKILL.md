@@ -39,7 +39,17 @@ portable core + Relay CLI.
 | `/handoff list` | List saved handoff documents and task IDs |
 | `/handoff delete <task-id>` | Delete only the handoff Markdown document |
 
-For `/handoff delete <task-id>`, explain that only `HANDOFF.md` is removed;\n`checkpoint.json`, `history/`, task directories, and project files are preserved.\nThe explicit delete invocation authorizes this documentation-only deletion.\nIf saving identical content again, report the existing handoff name and task ID\ninstead of implying that a new handoff was created.\n\n## Load order
+For `/handoff delete <task-id>`, explain that only `HANDOFF.md` is removed;
+`checkpoint.json`, `history/`, task directories, and project files are preserved.
+The explicit delete invocation authorizes this documentation-only deletion.
+If saving identical content again, report the existing handoff name and task ID
+instead of implying that a new handoff was created.
+
+## Resume safety
+
+Before editing after `/handoff resume`, compare the recorded checkpoint with live Git status, branch, HEAD, staged/unstaged/untracked paths, and referenced files. Preserve current workspace changes; never reset, clean, or overwrite files merely to match the checkpoint. Confirm deletions with Git diff/status and ask before destructive conflict resolution. See `docs/handoff-lifecycle.md`.
+
+## Load order
 
 1. [PORTABLE.md](PORTABLE.md) (installed) or [../../SKILL.md](../../SKILL.md)
 2. Ensure `PYTHONPATH` includes the Relay repo (or installed package) so
