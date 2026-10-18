@@ -125,6 +125,9 @@ def cmd_handoff(args: argparse.Namespace) -> int:
             return 2
         task_id = sanitize_task_id(raw_task)
         hp = handoff_path(workspace, config, task_id)
+        if action == "delete" and not getattr(args, "yes", False):
+            _print_json({"ok": False, "error": "confirmation required; pass --yes to delete only HANDOFF.md"})
+            return 2
         if hp.is_symlink() or hp.parent.is_symlink():
             _print_json({"ok": False, "error": "refusing to operate through a symlink"})
             return 2
@@ -632,6 +635,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--objective", default=None)
     sp.add_argument("--semantic-json", default=None)
     sp.add_argument("--no-activate", action="store_true")
+    sp.add_argument("--yes", action="store_true", help="Confirm handoff delete; does not delete project files")
     sp.set_defaults(func=cmd_handoff)
 
     sp = sub.add_parser("status", help="Show tasks and recovery readiness")
